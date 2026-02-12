@@ -19,12 +19,14 @@ use time::OffsetDateTime;
 
 use reqwest::{Response, StatusCode, header};
 
+use super::{Catalog, Select};
+
 /// Cache metadata
 ///
 /// Store update time and HTTP cache informations
 #[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default)]
-pub struct Cache {
+pub struct Cached {
     /// Last updated time
     last_update: Option<time::OffsetDateTime>,
     etag: Option<String>,
@@ -33,10 +35,48 @@ pub struct Cache {
     path: PathBuf,
 }
 
+impl Catalog for Cached {
+    async fn find<F: FnMut(&Plugin)>(
+        &self,
+        uri: &str,
+        query: &Select<'_>,
+        f: F,
+    ) -> anyhow::Result<()> {
+        todo!();
+    }
+
+    async fn refresh(
+        &mut self,
+        client: &reqwest::Client,
+        uri: &str,
+        bar: ProgressBar,
+        force: bool,
+    ) -> anyhow::Result<()> {
+        bar.set_message("Checking update");
+
+        match self.stream(client, uri, force).await {
+            Ok(stream) => {
+                if let Some(stream) = stream {
+                    bar.set_message("Updating...");
+                    self.download(stream).await.inspect_err(|err| {
+                        bar.finish_with_message(format!("{ALERT}{CROSS} ERROR: {err}{ALERT:#}"));
+                    })?;
+                }
+                bar.finish_with_message(format!("{OK}{CHECK} Up to date{OK:#}"));
+                Ok(())
+            }
+            Err(err) => {
+                bar.finish_with_message(format!("{ALERT}{CROSS} ERROR: {err}{ALERT:#}"));
+                Err(err)
+            }
+        }
+    }
+}
+
 pub trait ByteStream: Stream<Item = reqwest::Result<Bytes>> + std::marker::Unpin {}
 impl<S: Stream<Item = reqwest::Result<Bytes>> + std::marker::Unpin> ByteStream for S {}
 
-impl Cache {
+impl Cached {
     const CACHE_FILE: &'static str = "cache.json";
     const PLUGINS_FILE: &'static str = "plugins.json";
 
@@ -193,34 +233,6 @@ impl Cache {
         self.last_update = Some(time::OffsetDateTime::now_utc());
         serde_json::to_writer_pretty(fs::File::create(&self.path)?, self)?;
         Ok(())
-    }
-
-    /// Update the cache
-    pub async fn update_with_progress(
-        &mut self,
-        client: &reqwest::Client,
-        uri: &str,
-        bar: ProgressBar,
-        force: bool,
-    ) -> anyhow::Result<()> {
-        bar.set_message("Checking update");
-
-        match self.stream(client, uri, force).await {
-            Ok(stream) => {
-                if let Some(stream) = stream {
-                    bar.set_message("Updating...");
-                    self.download(stream).await.inspect_err(|err| {
-                        bar.finish_with_message(format!("{ALERT}{CROSS} ERROR: {err}{ALERT:#}"));
-                    })?;
-                }
-                bar.finish_with_message(format!("{OK}{CHECK} Up to date{OK:#}"));
-                Ok(())
-            }
-            Err(err) => {
-                bar.finish_with_message(format!("{ALERT}{CROSS} ERROR: {err}{ALERT:#}"));
-                Err(err)
-            }
-        }
     }
 }
 

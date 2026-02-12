@@ -9,16 +9,14 @@ use crate::errors::Error;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Source {
-    url: String,
+    pub url: String,
+    #[serde(default)]
+    pub rest: bool,
 }
 
 impl Source {
-    pub fn new(url: String) -> Self {
-        Self { url }
-    }
-
-    pub fn url(&self) -> &str {
-        &self.url
+    pub fn new(url: String, rest: bool) -> Self {
+        Self { url, rest }
     }
 }
 

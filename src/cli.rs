@@ -76,6 +76,10 @@ pub enum SourceCommand {
         name: String,
         #[arg()]
         url: String,
+        /// Indicates the remote source implements
+        /// the yapt REST api.
+        #[arg(long)]
+        rest: bool,
     },
     /// Remove remote source
     Remove {

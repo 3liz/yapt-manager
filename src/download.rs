@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use futures::future::join_all;
 
-use crate::cache::Cache;
+use crate::catalog::{Catalog, CatalogImpl};
 use crate::config::{Config, Source};
 
 pub fn download_sources(
@@ -24,23 +24,24 @@ pub fn download_sources(
 
     let m = MultiProgress::new();
 
-    // Create cache directories
-    let create_cache_pb = |name: &String| -> anyhow::Result<(Cache, ProgressBar)> {
-        let path = cache_dir.join(name);
-        if !path.exists() {
-            std::fs::create_dir(&path)
-                .with_context(|| format!("Failed to create cache dir {path:?}"))?;
-        }
+    // Create catalog
+    let create_catalog =
+        |name: &str, source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
+            let path = cache_dir.join(name);
+            if !path.exists() {
+                std::fs::create_dir(&path)
+                    .with_context(|| format!("Failed to create cache dir {path:?}"))?;
+            }
 
-        let pb = m.add(ProgressBar::no_length());
-        pb.set_style(ProgressStyle::with_template(&format!(
-            "{name:.<25} {{msg:.blue:}}"
-        ))?);
+            let progress = m.add(ProgressBar::no_length());
+            progress.set_style(ProgressStyle::with_template(&format!(
+                "{name:.<25} {{msg:.blue:}}"
+            ))?);
 
-        let cache = Cache::load_from(&path)
-            .with_context(|| format!("Failed to load cache from {path:?}"))?;
-        Ok((cache, pb))
-    };
+            let catalog = CatalogImpl::new(&path, source.rest)
+                .with_context(|| format!("Failed to load cache from {path:?}"))?;
+            Ok((catalog, progress))
+        };
 
     let client = reqwest::Client::builder()
         .user_agent("yapt-manager")
@@ -48,14 +49,12 @@ pub fn download_sources(
 
     if let Some(name) = source {
         let source = conf.try_get_source(&name)?;
-        let (mut cache, pb) = create_cache_pb(&name)?;
-        rt.block_on(cache.update_with_progress(&client, source.url(), pb, force))
+        let (mut catalog, progress) = create_catalog(&name, source)?;
+        rt.block_on(catalog.refresh(&client, &source.url, progress, force))
     } else {
         rt.block_on(join_all(conf.iter_sources().map(|(name, source)| async {
-            let (mut cache, pb) = create_cache_pb(name)?;
-            cache
-                .update_with_progress(&client, source.url(), pb, force)
-                .await
+            let (mut catalog, progress) = create_catalog(name, source)?;
+            catalog.refresh(&client, &source.url, progress, force).await
         })))
         .into_iter()
         .try_for_each(|res| res)

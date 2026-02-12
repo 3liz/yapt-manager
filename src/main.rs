@@ -5,7 +5,7 @@
 use clap::Parser;
 use std::path::Path;
 
-mod cache;
+mod catalog;
 mod cli;
 mod config;
 mod download;
@@ -68,8 +68,9 @@ fn cmd_source(
     use config::Source;
 
     match command {
-        Add { name, url } => {
-            conf.add_source(name.clone(), Source::new(url))?.save()?;
+        Add { name, url, rest } => {
+            conf.add_source(name.clone(), Source::new(url, rest))?
+                .save()?;
             eprintln!("{OK}Source '{name}' added{OK:#}");
         }
         Remove { name } => {
@@ -82,7 +83,7 @@ fn cmd_source(
         }
         List => {
             for (name, source) in conf.iter_sources() {
-                println!("{name:20}{}", source.url());
+                println!("{name:20}{}", source.url);
             }
         }
         Fetch { source, refresh } => {
