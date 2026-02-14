@@ -61,7 +61,7 @@ pub enum Commands {
     List(ListArgs),
     /// Install plugin(s)
     Install(InstallArgs),
-    /// Sync installed plugins
+    /// Sync installed plugins with remote sources
     #[command(name = "sync")]
     Synchronize(SyncArgs),
     /// Search for plugins
@@ -76,7 +76,7 @@ pub enum SourceCommand {
         name: String,
         #[arg()]
         url: String,
-        /// Indicates the remote source implements
+        /// Indicates that the remote source implements
         /// the yapt REST api.
         #[arg(long)]
         rest: bool,
@@ -142,10 +142,19 @@ pub enum OutputFormat {
 pub struct InstallArgs {
     /// Install all listed plugins
     ///
-    /// the version be a specified using dependency specifiers:
-    /// comparison operator,
+    /// The version can be specified using comparison specifiers:
+    /// "==,>,=>,<,<="
     #[arg()]
     pub name: Vec<String>,
+
+    /// Ask for an exact version match
+    ///
+    /// This may be required if the plugin's version is not SemVer compatible
+    /// In this case, comparison specifiers cannot be used.
+    ///
+    /// This option only works in conjunction withe the '==' specifier.
+    #[arg(long)]
+    pub exact_match: bool,
 
     #[command(flatten)]
     pub resolve_args: ResolverArgs,
@@ -163,7 +172,7 @@ pub struct SyncArgs {
 
 #[derive(Args, Debug)]
 pub struct InstallerArgs {
-    /// Upgrade plugin to latest version, if --pre is specified, the update will update
+    /// Upgrade plugin to latest version, if `--pre` is specified, the update will update
     /// to the latest experimental version if any.
     #[arg(long, short = 'U')]
     pub upgrade: bool,
@@ -173,6 +182,9 @@ pub struct InstallerArgs {
     /// Set files permissions to 0644
     #[arg(long)]
     pub fix_permissions: bool,
+    /// Plugin destination folder
+    #[arg(long, short, env = EnvVars::QGIS_PLUGINPATH)]
+    pub destination: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -189,6 +201,9 @@ pub struct ResolverArgs {
     /// Consider only trusted plugins
     #[arg(long)]
     pub trusted: bool,
+    /// The QGIS version
+    #[arg(long, env = EnvVars::QGIS_VERSION)]
+    pub qgis_version: Option<String>,
 }
 
 #[derive(Args, Debug)]

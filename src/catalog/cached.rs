@@ -6,6 +6,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::context::RunContext;
+use crate::echo::RefreshStyle;
 use crate::echo::{ALERT, CHECK, CROSS, OK};
 use crate::errors::Error;
 use crate::plugins::Plugin;
@@ -19,7 +21,7 @@ use time::OffsetDateTime;
 
 use reqwest::{Response, StatusCode, header};
 
-use super::{Catalog, Select};
+use super::{Catalog, Select, rest};
 
 /// Cache metadata
 ///
@@ -33,40 +35,42 @@ pub struct Cached {
     content_type: Option<String>,
     #[serde(skip)]
     path: PathBuf,
+    #[serde(skip)]
+    uri: String,
 }
 
 impl Catalog for Cached {
-    async fn find<F: FnMut(&Plugin)>(
+    async fn search(
         &self,
-        uri: &str,
+        context: &RunContext,
         query: &Select<'_>,
-        f: F,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<Plugin>> {
         todo!();
     }
 
     async fn refresh(
         &mut self,
-        client: &reqwest::Client,
-        uri: &str,
+        context: &RunContext,
         bar: ProgressBar,
         force: bool,
     ) -> anyhow::Result<()> {
         bar.set_message("Checking update");
 
-        match self.stream(client, uri, force).await {
+        let client = context.client()?;
+
+        match self.stream(&client, force).await {
             Ok(stream) => {
                 if let Some(stream) = stream {
                     bar.set_message("Updating...");
-                    self.download(stream).await.inspect_err(|err| {
-                        bar.finish_with_message(format!("{ALERT}{CROSS} ERROR: {err}{ALERT:#}"));
+                    self.download(stream, &bar).await.inspect_err(|_| {
+                        bar.finish_with_message(RefreshStyle::error_msg());
                     })?;
                 }
-                bar.finish_with_message(format!("{OK}{CHECK} Up to date{OK:#}"));
+                bar.finish_with_message(RefreshStyle::ok_msg());
                 Ok(())
             }
             Err(err) => {
-                bar.finish_with_message(format!("{ALERT}{CROSS} ERROR: {err}{ALERT:#}"));
+                bar.finish_with_message(RefreshStyle::error_msg());
                 Err(err)
             }
         }
@@ -81,17 +85,19 @@ impl Cached {
     const PLUGINS_FILE: &'static str = "plugins.json";
 
     // Create a new Cache
-    pub fn load_from(cache_dir: &Path) -> anyhow::Result<Self> {
+    pub fn load_from(cache_dir: &Path, uri: String) -> anyhow::Result<Self> {
         let path = cache_dir.join(Self::CACHE_FILE);
         Ok(if path.exists() {
             let file = fs::File::open(&path)?;
             Self {
                 path,
+                uri,
                 ..serde_json::from_reader(file)?
             }
         } else {
             Self {
                 path,
+                uri,
                 ..Default::default()
             }
         })
@@ -128,9 +134,8 @@ impl Cached {
     async fn fetch(
         &self,
         client: &reqwest::Client,
-        uri: &str,
     ) -> anyhow::Result<Option<reqwest::RequestBuilder>> {
-        let mut builder = client.get(uri);
+        let mut builder = client.get(&self.uri);
         if let Some(etag) = &self.etag {
             //
             // We have a ETag, use it
@@ -140,7 +145,7 @@ impl Cached {
             //
             // Compare update date with last-modified header
             //
-            if let Some(last_modified) = Self::get_last_modified(uri, client).await? {
+            if let Some(last_modified) = Self::get_last_modified(&self.uri, client).await? {
                 if last_update >= last_modified {
                     // Source is up to date, nothing to do
                     return Ok(None);
@@ -157,13 +162,12 @@ impl Cached {
     pub async fn stream(
         &mut self,
         client: &reqwest::Client,
-        uri: &str,
         force: bool,
     ) -> anyhow::Result<Option<impl ByteStream + use<>>> {
         let builder = if force {
-            client.get(uri)
+            client.get(&self.uri)
         } else {
-            match self.fetch(client, uri).await? {
+            match self.fetch(client).await? {
                 Some(builder) => builder,
                 None => return Ok(None),
             }
@@ -187,7 +191,11 @@ impl Cached {
     }
 
     /// Download data from stream
-    pub async fn download<S: ByteStream>(&mut self, mut stream: S) -> anyhow::Result<()> {
+    pub async fn download<S: ByteStream>(
+        &mut self,
+        mut stream: S,
+        progress: &ProgressBar,
+    ) -> anyhow::Result<()> {
         let mut tmpfile = tempfile::NamedTempFile::new_in(self.cache_dir())
             .context("Failed to create temporary file")?;
 
@@ -195,6 +203,7 @@ impl Cached {
         {
             let mut file = std::io::BufWriter::new(tmpfile.as_file_mut());
             while let Some(chunk) = stream.next().await {
+                progress.tick();
                 file.write_all(&chunk?)?;
             }
             file.flush()?;
@@ -216,7 +225,7 @@ impl Cached {
         let catalog = if let Some(ref content_type) = self.content_type
             && content_type.as_str() == mime::APPLICATION_JSON
         {
-            Plugin::read_catalog(&mut body)?
+            rest::read_catalog(&mut body)?
         } else {
             Plugin::read_catalog_xml(&mut body)?
         };

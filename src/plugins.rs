@@ -1,39 +1,29 @@
 //!
 //! Plugins metadata
 //!
-use std::io::Read;
 
+mod metadata;
 mod xmlparse;
 
 #[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Plugin {
-    name: String,
-    description: String,
-    version: String,
-    qgis_minimum_version: String,
-    qgis_maximum_version: String,
-    file_name: String,
-    slug: String,
-    author_name: String,
-    download_url: String,
-    create_date: String,
-    update_date: String,
-    experimental: bool,
-    deprecated: bool,
-    tags: String,
-    server: bool,
-    trusted: bool,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub qgis_minimum_version: String,
+    pub qgis_maximum_version: String,
+    pub file_name: String,
+    pub slug: String,
+    pub author_name: String,
+    pub download_url: String,
+    pub create_date: String,
+    pub update_date: String,
+    pub experimental: bool,
+    pub deprecated: bool,
+    pub tags: String,
+    pub server: bool,
+    pub trusted: bool,
 }
 
-impl Plugin {
-    /// Read catalog as JSON
-    pub fn read_catalog<R: Read>(reader: &mut R) -> anyhow::Result<Vec<Plugin>> {
-        #[derive(serde::Deserialize)]
-        struct Data {
-            plugins: Vec<Plugin>,
-        }
-
-        Ok(serde_json::from_reader::<&mut R, Data>(reader)?.plugins)
-    }
-}
+impl Plugin {}

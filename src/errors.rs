@@ -15,4 +15,6 @@ pub enum Error {
     SourceExists(String),
     #[error("No such source: {0}")]
     SourceNotExists(String),
+    #[error("Invalid plugin metadata: {0}")]
+    PluginMetadata(String),
 }
