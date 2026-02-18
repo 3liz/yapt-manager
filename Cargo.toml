@@ -29,6 +29,7 @@ futures = "0.3"
 bytes = "1"
 tokio = "1"
 mime = "0.3"
+strsim = "0.11"
 
 [dependencies.rust-ini]
 git = "https://github.com/dmarteau/rust-ini.git"

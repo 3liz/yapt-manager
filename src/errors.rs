@@ -17,4 +17,8 @@ pub enum Error {
     SourceNotExists(String),
     #[error("Invalid plugin metadata: {0}")]
     PluginMetadata(String),
+    #[error("Invalid requirement: {0}")]
+    Requirement(Cow<'static, str>),
+    #[error("QGIS version required")]
+    QgisVersionRequired,
 }

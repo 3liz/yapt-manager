@@ -1,15 +1,56 @@
 //!
-//!  Version checks
+//! Version checks
 //!
-//!  This is a best effort for comparing non SemVer compatible
-//!  version scheme
+//! This is a best effort for comparing non SemVer compatible
+//! version scheme
+//!
 //!
 use std::borrow::Cow;
 use std::char;
+use std::fmt;
 
 use semver::VersionReq;
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+use crate::errors::Error;
+
+/// Parse version requirement
+///
+/// ex: "name>=1.2.3, <1.8",
+///
+/// If the comparison operator is '==' then the version will be check
+/// as an exact match.
+///
+/// If the version has a prerelease tag, then it will only matches
+/// if at least one comparator with same major.nimor.patch has also
+/// a prerelease tag.
+///
+/// i.e:
+///
+/// * matching '>1.2.0' and '1.2.1-alpha.1' is always false
+/// * matching '>1.2.1-alpha.0' and '1.2.1-alpha.1' is true
+///
+pub fn parse_requirement(arg: &str) -> Result<(&'_ str, Match<'_>), Error> {
+    if let Some((name, ver)) = arg.split_once("==") {
+        Ok((name.trim(), Match::new_exact(ver.trim().into())))
+    } else {
+        arg.split(['<', '>', '='])
+            .next()
+            .ok_or_else(|| Error::Requirement("Empty requirement".into()))
+            .and_then(|name: &str| {
+                let (_, ver) = arg.split_at(name.len());
+                if ver.is_empty() {
+                    Ok((name.trim(), Match::ALL))
+                } else {
+                    match Match::parse(ver.trim()) {
+                        Ok(m) => Ok((name.trim(), m)),
+                        Err(err) => Err(Error::Requirement(format!("{err}").into())),
+                    }
+                }
+            })
+    }
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Version<'a> {
     version: SemVer,
     text: Cow<'a, str>,
@@ -27,16 +68,32 @@ impl<'a> Version<'a> {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-enum SemVer {
+impl<'a> fmt::Display for Version<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.text)
+    }
+}
+
+#[derive(Default, Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum SemVer {
     Full(semver::Version),
     Partial(semver::Version),
+    #[default]
     None,
 }
 
 impl<T: AsRef<str>> From<T> for SemVer {
     fn from(text: T) -> SemVer {
         SemVer::new(text.as_ref())
+    }
+}
+
+impl fmt::Display for SemVer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Full(v) | Self::Partial(v) => write!(f, "{}", v),
+            Self::None => write!(f, ""),
+        }
     }
 }
 
@@ -93,6 +150,20 @@ impl SemVer {
             })
             .unwrap_or(SemVer::None)
     }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        *self == Self::None
+    }
+
+    /*
+    pub fn into_version(self) -> Option<semver::Version> {
+        match self {
+            Self::Full(v) | Self::Partial(v) => Some(v),
+            Self::None => None,
+        }
+    }
+    */
 }
 
 // From trait
@@ -125,27 +196,35 @@ impl<'a> From<&'a String> for Version<'a> {
 }
 
 // Match
-
+#[derive(Debug, PartialEq)]
 pub enum Match<'a> {
     Request(VersionReq),
     Exact(Cow<'a, str>),
 }
 
 impl<'a> Match<'a> {
-    pub fn parse(&self, text: &str) -> Result<Self, semver::Error> {
+    const ALL: Self = Self::Request(VersionReq::STAR);
+
+    /// Create a match using comparison operators
+    pub fn parse(text: &str) -> Result<Self, semver::Error> {
         Ok(Self::Request(VersionReq::parse(text)?))
     }
 
-    pub fn new_exact(&self, text: Cow<'a, str>) -> Self {
+    /// Create a new exact match
+    pub fn new_exact(text: Cow<'a, str>) -> Self {
         Self::Exact(text)
     }
 
+    /// Check if version matches
+    ///
+    /// IMPORTANT: See note above about prerelease comparison
     pub fn matches(&self, ver: &Version<'_>) -> bool {
         match self {
             Self::Request(req) => {
                 // If this is a semver request
                 // then we assume that the version is also, at least partially,
                 // semver compatible, otherwise comparison cannot occurs.
+                eprintln!("## {self:?} {ver:?}");
                 match &ver.version {
                     SemVer::Full(v) | SemVer::Partial(v) => req.matches(v),
                     _ => false,
@@ -154,6 +233,11 @@ impl<'a> Match<'a> {
             // Perform exact match
             Self::Exact(s) => ver.exact_match(s),
         }
+    }
+
+    /// Check if it matches any version
+    pub fn matches_any(&self) -> bool {
+        *self == Self::ALL
     }
 }
 
@@ -192,5 +276,41 @@ mod tests {
         assert!(Version::from("alpha") < Version::from("beta"));
         assert!(Version::from("1.2.0-beta_2") < Version::from("1.2.2-beta_1"));
         assert!(Version::from("1.2.0-beta_2") > Version::from("1.2.0-beta_1"));
+        assert!(Version::from("1.2.1a") > Version::from("1.2.0"));
+    }
+
+    #[test]
+    fn test_version_parse_requirements() {
+        fn test_requirement(input: &str, name: &str, req: &str) {
+            assert_eq!(
+                parse_requirement(input).unwrap(),
+                (name, Match::Request(VersionReq::parse(req).unwrap())),
+            );
+        }
+
+        fn test_requirement_exact(input: &str, name: &str, ver: &str) {
+            assert_eq!(
+                parse_requirement(input).unwrap(),
+                (name, Match::Exact(ver.into())),
+            );
+        }
+
+        test_requirement("foo=1.3.0", "foo", "=1.3.0");
+        test_requirement("foo = 1.3.0", "foo", "=1.3.0");
+        test_requirement("foo<=1.3,>1.2", "foo", "<=1.3, >1.2");
+
+        test_requirement_exact("foo==1.2a", "foo", "1.2a");
+        test_requirement_exact("foo == 1.2a", "foo", "1.2a");
+    }
+
+    #[test]
+    fn test_version_matches() {
+        let m = Match::parse("<=1.3, >1.2.0").unwrap();
+        assert!(m.matches(&Version::from("1.2.1")));
+        assert!(!m.matches(&Version::from("1.4")));
+        // NOTE: Comparing with prerelease version match
+        // only if at least one comparator with same major.nimor.patch
+        // has also a prerelease tag.
+        assert!(!m.matches(&Version::from("1.2.1a")));
     }
 }

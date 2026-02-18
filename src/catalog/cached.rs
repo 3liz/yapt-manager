@@ -20,8 +20,57 @@ use futures::stream::{Stream, StreamExt};
 use time::OffsetDateTime;
 
 use reqwest::{Response, StatusCode, header};
+use std::collections::{HashMap, hash_map};
 
 use super::{Catalog, Select, rest};
+
+type PluginMap = HashMap<String, Vec<Plugin>>;
+
+// Plugin cache
+#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
+struct Plugins {
+    plugins: PluginMap,
+}
+
+/// Cache builder
+pub struct CacheBuilder {
+    inner: PluginMap,
+}
+
+impl CacheBuilder {
+    pub fn new() -> Self {
+        Self {
+            inner: PluginMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, p: Plugin) {
+        match self.inner.get_mut(&p.name) {
+            Some(v) => v.push(p),
+            None => {
+                self.inner.insert(p.name.clone(), vec![p]);
+            }
+        }
+    }
+
+    fn build(mut self) -> Plugins {
+        // Sort each buckets by version
+        self.inner.values_mut().for_each(|v| {
+            v.sort_by(|a, b| b.version.partial_cmp(&a.version).unwrap());
+        });
+
+        Plugins {
+            plugins: self.inner,
+        }
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+enum UpdateStatus {
+    NeedUpdate(reqwest::RequestBuilder),
+    UpToDate,
+    ManualUpdate,
+}
 
 /// Cache metadata
 ///
@@ -40,12 +89,33 @@ pub struct Cached {
 }
 
 impl Catalog for Cached {
+    async fn search_all(
+        &self,
+        context: &RunContext,
+        query: &Select<'_>,
+    ) -> anyhow::Result<Vec<Plugin>> {
+        Ok(self
+            .load_cache()?
+            .plugins
+            .drain()
+            .filter_map(|(k, v)| query.matches_by_name(&k).then_some(v))
+            .flatten()
+            .filter(|p| query.matches(p))
+            .collect())
+    }
+
     async fn search(
         &self,
         context: &RunContext,
         query: &Select<'_>,
     ) -> anyhow::Result<Vec<Plugin>> {
-        todo!();
+        Ok(self
+            .load_cache()?
+            .plugins
+            .drain()
+            .filter_map(|(k, v)| query.matches_by_name(&k).then_some(v))
+            .filter_map(|v| v.into_iter().filter(|p| query.matches(p)).take(1).next())
+            .collect())
     }
 
     async fn refresh(
@@ -75,6 +145,48 @@ impl Catalog for Cached {
             }
         }
     }
+
+    async fn check_for_update(
+        &mut self,
+        context: &RunContext,
+        bar: ProgressBar,
+    ) -> anyhow::Result<()> {
+        bar.set_message("Checking update");
+
+        let client = context.client()?;
+
+        if let Some(etag) = &self.etag {
+            //
+            // We have a ETag, use it
+            //
+            let res = client
+                .head(&self.uri)
+                .header(header::IF_NONE_MATCH, etag)
+                .send()
+                .await?;
+
+            match res.status() {
+                StatusCode::NOT_MODIFIED => bar.finish_with_message(RefreshStyle::ok_msg()),
+                StatusCode::OK => {
+                    bar.finish_with_message(RefreshStyle::warn_msg("Update required"))
+                }
+                code => return Err(anyhow::anyhow!(Error::SourceRequestFailure(code))),
+            }
+        } else {
+            match self.fetch(&client).await? {
+                UpdateStatus::UpToDate => {
+                    bar.finish_with_message(RefreshStyle::ok_msg());
+                }
+                UpdateStatus::NeedUpdate(_) => {
+                    bar.finish_with_message(RefreshStyle::warn_msg("Update required"));
+                }
+                UpdateStatus::ManualUpdate => {
+                    bar.finish_with_message(RefreshStyle::warn_msg("Require manual update"));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 pub trait ByteStream: Stream<Item = reqwest::Result<Bytes>> + std::marker::Unpin {}
@@ -100,6 +212,17 @@ impl Cached {
                 uri,
                 ..Default::default()
             }
+        })
+    }
+
+    /// Load cached catalog
+    fn load_cache(&self) -> anyhow::Result<Plugins> {
+        let cache_file = self.cache_dir().join(Self::PLUGINS_FILE);
+        Ok(if cache_file.exists() {
+            serde_json::from_reader(fs::File::open(&cache_file)?)
+                .inspect_err(|_| log::error!("Failed to load cache file at {cache_file:?}"))?
+        } else {
+            CacheBuilder::new().build()
         })
     }
 
@@ -131,10 +254,7 @@ impl Cached {
         )
     }
 
-    async fn fetch(
-        &self,
-        client: &reqwest::Client,
-    ) -> anyhow::Result<Option<reqwest::RequestBuilder>> {
+    async fn fetch(&self, client: &reqwest::Client) -> anyhow::Result<UpdateStatus> {
         let mut builder = client.get(&self.uri);
         if let Some(etag) = &self.etag {
             //
@@ -148,14 +268,14 @@ impl Cached {
             if let Some(last_modified) = Self::get_last_modified(&self.uri, client).await? {
                 if last_update >= last_modified {
                     // Source is up to date, nothing to do
-                    return Ok(None);
+                    return Ok(UpdateStatus::UpToDate);
                 }
             } else {
                 // No cache info, bail out
-                return Err(anyhow::anyhow!(Error::SourceManualUpdateRequired));
+                return Ok(UpdateStatus::ManualUpdate);
             }
         }
-        Ok(Some(builder))
+        Ok(UpdateStatus::NeedUpdate(builder))
     }
 
     /// Fetch remote source
@@ -168,8 +288,11 @@ impl Cached {
             client.get(&self.uri)
         } else {
             match self.fetch(client).await? {
-                Some(builder) => builder,
-                None => return Ok(None),
+                UpdateStatus::NeedUpdate(builder) => builder,
+                UpdateStatus::UpToDate => return Ok(None),
+                UpdateStatus::ManualUpdate => {
+                    return Err(anyhow::anyhow!(Error::SourceManualUpdateRequired));
+                }
             }
         };
 
@@ -228,7 +351,8 @@ impl Cached {
             rest::read_catalog(&mut body)?
         } else {
             Plugin::read_catalog_xml(&mut body)?
-        };
+        }
+        .build();
 
         serde_json::to_writer_pretty(
             fs::File::create(self.cache_dir().join(Self::PLUGINS_FILE))?,

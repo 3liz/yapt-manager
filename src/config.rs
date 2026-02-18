@@ -1,22 +1,46 @@
 //!
 //! YAPT manager configuration
 //!
+use std::borrow::Cow;
 use std::collections::{HashMap, hash_map};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::errors::Error;
+use crate::version::SemVer;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Source {
     pub url: String,
     #[serde(default)]
     pub rest: bool,
+    #[serde(default)]
+    pub template: bool,
 }
 
 impl Source {
     pub fn new(url: String, rest: bool) -> Self {
-        Self { url, rest }
+        let template = url.contains("{VERSION}");
+        Self {
+            url,
+            rest,
+            template,
+        }
+    }
+
+    pub fn try_url(&self, qgis_version: &SemVer) -> Result<Cow<'_, str>, Error> {
+        if self.template {
+            if qgis_version.is_none() {
+                Err(Error::QgisVersionRequired)
+            } else {
+                Ok(self
+                    .url
+                    .replace("{VERSION}", &qgis_version.to_string())
+                    .into())
+            }
+        } else {
+            Ok(self.url.as_str().into())
+        }
     }
 }
 
@@ -64,6 +88,12 @@ impl Config {
         }
     }
 
+    #[inline]
+    pub fn num_sources(&self) -> usize {
+        self.sources.len()
+    }
+
+    #[inline]
     pub fn iter_sources(&self) -> impl Iterator<Item = (&String, &Source)> {
         self.sources.iter()
     }

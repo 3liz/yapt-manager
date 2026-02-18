@@ -7,6 +7,7 @@ use std::str::FromStr;
 use anyhow::Context;
 
 use crate::errors::Error;
+use crate::version::Version;
 
 use super::Plugin;
 
@@ -33,7 +34,7 @@ impl Plugin {
         Ok(Self {
             name: metadata.get_string("name", true)?,
             description: metadata.get_string("description", true)?,
-            version: metadata.get_string("version", true)?,
+            version: Version::from(metadata.get_string("version", true)?),
             qgis_minimum_version: metadata.get_string("qgisMinimumVersion", true)?,
             qgis_maximum_version: metadata.get_string("qgisMaximumVersion", false)?,
             author_name: metadata.get_string("author", true)?,

@@ -9,6 +9,7 @@ mod catalog;
 mod cli;
 mod config;
 mod context;
+mod display;
 mod echo;
 mod errors;
 mod install;
@@ -18,7 +19,9 @@ mod statics;
 mod version;
 
 use cli::{Cli, Commands};
-use echo::{INFO, OK};
+use display::{Table, column, print_table};
+use echo::{INFO, OK, TABINF};
+use plugins::Plugin;
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -27,11 +30,13 @@ fn main() -> anyhow::Result<()> {
 
     logger::init(args.verbose);
 
-    let context = context::RunContext::new(args.config, args.cache_dir)?;
+    let mut context = context::RunContext::new(args.config, args.cache_dir)?;
+    let no_sync = args.no_sync;
+    let qgis_version = args.qgis_version;
 
     match *args.command {
         Source { command } => {
-            cmd_source(context, command)?;
+            cmd_source(context, command, qgis_version)?;
         }
         List(args) => {
             todo!();
@@ -39,17 +44,59 @@ fn main() -> anyhow::Result<()> {
         Install(args) => {
             todo!();
         }
-        Synchronize(args) => {
+        Upgrade(args) => {
             todo!();
         }
-        Search(args) => {
-            todo!();
+        Search(mut args) => {
+            use context::SearchItem;
+
+            args.name.make_ascii_lowercase();
+
+            let resolver = args.resolve_args;
+            let source = resolver.source;
+            let mut plugins = context
+                .qgis_version(qgis_version)?
+                .sync(no_sync, source.as_ref())?
+                .search(
+                    catalog::Select {
+                        key: args.name.into(),
+                        by_name: args.by_name,
+                        server: resolver.server,
+                        experimental: resolver.pre,
+                        deprecated: resolver.deprecated,
+                        ..Default::default()
+                    },
+                    source.as_ref(),
+                    args.all,
+                )?;
+            plugins.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
+            eprint!(" {TABINF} S {TABINF:#} Server");
+            eprint!(" {TABINF} X {TABINF:#} Experimental");
+            eprint!(" {TABINF} T {TABINF:#} Trusted");
+            eprint!(" {TABINF} D {TABINF:#} Deprecated");
+            eprintln!();
+            print_table(
+                plugins.iter(),
+                (
+                    column("NAME", |p: &SearchItem| p.name.as_str().into()),
+                    column("VERSION", |p: &SearchItem| p.version.as_str().into()),
+                    column("QGIS MIN", |p: &SearchItem| {
+                        p.qgis_minimum_version.as_str().into()
+                    }),
+                    column("STATUS", |p: &SearchItem| SearchItem::status(p).into()),
+                    column("SOURCE", |p: &SearchItem| SearchItem::source(p).into()),
+                ),
+            );
         }
     }
     Ok(())
 }
 
-fn cmd_source(context: context::RunContext, command: cli::SourceCommand) -> anyhow::Result<()> {
+fn cmd_source(
+    mut context: context::RunContext,
+    command: cli::SourceCommand,
+    qgis_version: Option<String>,
+) -> anyhow::Result<()> {
     use cli::SourceCommand::*;
     use config::Source;
 
@@ -74,8 +121,15 @@ fn cmd_source(context: context::RunContext, command: cli::SourceCommand) -> anyh
                 println!("{name:20}{}", source.url);
             }
         }
-        Fetch { source, refresh } => {
-            context.refresh_sources(refresh, source)?;
+        Update { source, refresh } => {
+            context
+                .qgis_version(qgis_version)?
+                .refresh_sources(refresh, source.as_ref())?;
+        }
+        Check { source } => {
+            context
+                .qgis_version(qgis_version)?
+                .check_sources(source.as_ref())?;
         }
     }
     Ok(())

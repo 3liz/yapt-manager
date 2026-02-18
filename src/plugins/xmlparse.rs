@@ -1,18 +1,26 @@
 use std::io::Read;
 
 use super::Plugin;
+use crate::catalog::cached::CacheBuilder;
 use crate::errors::Error;
+use crate::version::Version;
 
 impl Plugin {
     pub fn from_xml<R: Read>(
         name: String,
+        version: String,
         parser: &mut xml::EventReader<R>,
     ) -> Result<Self, Error> {
         use xml::common::Position;
         use xml::reader::XmlEvent;
 
+        let version = Version::from(version);
+        let slug = name.to_ascii_lowercase();
+
         let mut this = Self {
             name,
+            version,
+            slug,
             ..Default::default()
         };
 
@@ -46,7 +54,6 @@ impl Plugin {
         ) -> Result<(), Error> {
             match name {
                 "description" => this.description = text(parser, false)?,
-                "version" => this.version = text(parser, true)?,
                 "qgis_minimum_version" => this.qgis_minimum_version = text(parser, true)?,
                 "qgis_maximum_version" => this.qgis_maximum_version = text(parser, false)?,
                 "file_name" => this.file_name = text(parser, false)?,
@@ -63,6 +70,7 @@ impl Plugin {
                 }
                 "tags" => this.tags = text(parser, false)?,
                 "server" => this.server = parse_bool(&text(parser, false)?, name)?,
+                "trusted" => this.trusted = parse_bool(&text(parser, false)?, name)?,
                 _ => {
                     parser
                         .skip()
@@ -112,11 +120,11 @@ impl Plugin {
         }
     }
 
-    pub fn read_catalog_xml<R: Read>(reader: &mut R) -> Result<Vec<Plugin>, Error> {
+    pub fn read_catalog_xml<R: Read>(reader: &mut R) -> Result<CacheBuilder, Error> {
         use xml::common::Position;
         use xml::reader::XmlEvent;
 
-        let mut catalog = Vec::with_capacity(100);
+        let mut builder = CacheBuilder::new();
 
         let mut parser = xml::EventReader::new(reader);
         let mut plugins = false;
@@ -149,14 +157,12 @@ impl Plugin {
                             }
 
                             // Register plugin
-                            match Plugin::from_xml(plugin_name.clone(), &mut parser) {
-                                Ok(p) => catalog.push(p),
+                            match Plugin::from_xml(plugin_name, plugin_version, &mut parser) {
+                                Ok(p) => builder.insert(p),
                                 Err(err) => {
                                     let pos = parser.position();
                                     log::error!(
-                                        "Invalid plugin xml '{}:{}' at line: {}, col: {}\n{}",
-                                        plugin_name,
-                                        plugin_version,
+                                        "Invalid plugin xml at line: {}, col: {}\n{}",
                                         err,
                                         pos.row(),
                                         pos.column(),
@@ -198,7 +204,7 @@ impl Plugin {
             }
         }?;
 
-        Ok(catalog)
+        Ok(builder)
     }
 }
 
@@ -207,8 +213,9 @@ fn parse_bool(v: &str, k: &str) -> Result<bool, Error> {
         "" => Ok(false),
         _ if v.eq_ignore_ascii_case("true") => Ok(true),
         _ if v.eq_ignore_ascii_case("false") => Ok(false),
+        _ if v.eq_ignore_ascii_case("None") => Ok(false),
         _ => Err(Error::XmlParse(
-            format!("Invalid boolean value for {k}").into(),
+            format!("Invalid boolean value for {k}: {v}").into(),
         )),
     }
 }

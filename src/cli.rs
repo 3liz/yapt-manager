@@ -32,6 +32,13 @@ pub struct Cli {
     pub cache_dir: Option<PathBuf>,
     #[arg(global = true, long, help_heading = "Config options", env = EnvVars::YAPT_NO_SYNC)]
     pub no_sync: bool,
+    /// The QGIS version
+    ///
+    /// If the qgis version is not specified, the version
+    /// will be determined from the local QGIS installation
+    /// if available.
+    #[arg(global = true, long, help_heading = "Config options", env = EnvVars::QGIS_VERSION)]
+    pub qgis_version: Option<String>,
 
     // Global options
     /// Increase log verbosity
@@ -61,9 +68,9 @@ pub enum Commands {
     List(ListArgs),
     /// Install plugin(s)
     Install(InstallArgs),
-    /// Sync installed plugins with remote sources
-    #[command(name = "sync")]
-    Synchronize(SyncArgs),
+    /// Upgrade installed plugins with remote sources
+    #[command(alias = "sync")]
+    Upgrade(UpgradeArgs),
     /// Search for plugins
     Search(SearchArgs),
 }
@@ -101,13 +108,19 @@ pub enum SourceCommand {
     /// from the server headers.
     /// If the server does not provides these headers, then the source will not be
     /// be synced when issuing commands..
-    Fetch {
+    Update {
         /// Fetch only the specified source
         #[arg()]
         source: Option<String>,
         /// Refresh cached data
         #[arg(long)]
         refresh: bool,
+    },
+    /// Check for update
+    Check {
+        /// Check only the specified source
+        #[arg()]
+        source: Option<String>,
     },
 }
 
@@ -116,15 +129,13 @@ pub struct ListArgs {
     /// List outdated plugins
     #[arg(long, short)]
     pub outdated: bool,
-    /// Include pre-release, development and experimental versions.
-    #[arg(long, env = EnvVars::QGIS_PLUGIN_INCLUDE_PRERELEASE)]
-    pub pre: bool,
+
+    #[command(flatten)]
+    pub resolve_args: ResolverArgs,
+
     /// Select the output format
     #[arg(long)]
     pub format: OutputFormat,
-    /// Select the source to use (default to all sources)
-    #[arg(long, short)]
-    pub source: Option<String>,
 }
 
 #[derive(Debug, Default, Copy, Clone, clap::ValueEnum)]
@@ -143,18 +154,26 @@ pub struct InstallArgs {
     /// Install all listed plugins
     ///
     /// The version can be specified using comparison specifiers:
-    /// "==,>,=>,<,<="
-    #[arg()]
-    pub name: Vec<String>,
-
-    /// Ask for an exact version match
     ///
-    /// This may be required if the plugin's version is not SemVer compatible
-    /// In this case, comparison specifiers cannot be used.
+    /// ex: "name>=1.2.3, <1.8", "name=1.8.1"
     ///
-    /// This option only works in conjunction withe the '==' specifier.
-    #[arg(long)]
-    pub exact_match: bool,
+    /// If the version has a prerelease tag, then it will only matches
+    /// if at least one comparator with same major.nimor.patch has also
+    /// a prerelease tag.
+    ///
+    /// i.e:
+    ///
+    /// * matching '>1.2.0' and '1.2.1-alpha.1' is always false
+    /// * matching '>1.2.1-alpha.0' and '1.2.1-alpha.1' is true
+    ///
+    /// If the comparison operator is '==' then the version will be check
+    /// as an exact match. This may be useful is the plugin version
+    /// does not follow semantic versioning.
+    ///
+    /// ex: "name==release"
+    ///
+    #[arg(name = "NAME")]
+    pub names: Vec<String>,
 
     #[command(flatten)]
     pub resolve_args: ResolverArgs,
@@ -163,7 +182,7 @@ pub struct InstallArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct SyncArgs {
+pub struct UpgradeArgs {
     #[command(flatten)]
     pub resolve_args: ResolverArgs,
     #[command(flatten)]
@@ -195,25 +214,26 @@ pub struct ResolverArgs {
     /// Include deprecated versions
     #[arg(long)]
     pub deprecated: bool,
+    /// Consider only server plugins
+    #[arg(long)]
+    pub server: bool,
     /// Use only the specified source
     #[arg(long)]
     pub source: Option<String>,
-    /// Consider only trusted plugins
-    #[arg(long)]
-    pub trusted: bool,
-    /// The QGIS version
-    #[arg(long, env = EnvVars::QGIS_VERSION)]
-    pub qgis_version: Option<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
     #[arg()]
-    name: String,
+    pub name: String,
 
-    /// Consider only server plugins
+    /// Only search by plugin name
     #[arg(long)]
-    pub server: bool,
+    pub by_name: bool,
+
+    /// Return all versions of plugins
+    #[arg(long)]
+    pub all: bool,
 
     #[command(flatten)]
     pub resolve_args: ResolverArgs,

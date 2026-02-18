@@ -63,12 +63,12 @@ impl Installer {
     // Update a lock entry
     pub fn update(&mut self, source: String, plugin: &Plugin, folder: PathBuf) -> &mut Self {
         if let Some(lock) = self.locked.iter_mut().find(|l| l.name == plugin.name) {
-            lock.version = plugin.version.clone();
+            lock.version = plugin.version.to_string();
             lock.source = source;
         } else {
             self.locked.push(LockEntry {
                 name: plugin.name.clone(),
-                version: plugin.version.clone(),
+                version: plugin.version.to_string(),
                 source,
                 folder,
             })
