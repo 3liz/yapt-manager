@@ -7,15 +7,11 @@ mod xmlparse;
 
 use crate::version::{SemVer, Version};
 
-#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Plugin {
     pub name: String,
     pub description: String,
-    #[serde(
-        serialize_with = "serialize_version",
-        deserialize_with = "deserialize_version"
-    )]
     pub version: Version<'static>,
     pub qgis_minimum_version: String,
     pub qgis_maximum_version: String,
@@ -41,20 +37,4 @@ impl Plugin {
                 true
             }
     }
-}
-
-// Serializer/Deserializer Version
-fn serialize_version<S>(value: &Version<'static>, s: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    s.serialize_str(value.as_str())
-}
-
-fn deserialize_version<'de, D>(d: D) -> Result<Version<'static>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize;
-    Ok(Version::from(String::deserialize(d)?))
 }

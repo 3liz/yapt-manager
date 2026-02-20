@@ -31,17 +31,21 @@ impl Plugin {
             .section(Some("general"))
             .ok_or_else(|| Error::PluginMetadata("Missing 'general' section".into()))?;
 
+        let name = metadata.get_string("name", true)?;
+        let slug = name.to_ascii_lowercase();
+
         Ok(Self {
-            name: metadata.get_string("name", true)?,
-            description: metadata.get_string("description", true)?,
+            name,
+            slug,
             version: Version::from(metadata.get_string("version", true)?),
-            qgis_minimum_version: metadata.get_string("qgisMinimumVersion", true)?,
-            qgis_maximum_version: metadata.get_string("qgisMaximumVersion", false)?,
-            author_name: metadata.get_string("author", true)?,
+            description: metadata.get_string("description", true)?,
+            //qgis_minimum_version: metadata.get_string("qgisMinimumVersion", true)?,
+            //qgis_maximum_version: metadata.get_string("qgisMaximumVersion", false)?,
+            //author_name: metadata.get_string("author", true)?,
             experimental: metadata.get_bool("experimental", false)?,
             deprecated: metadata.get_bool("deprecated", false)?,
             server: metadata.get_bool("server", false)?,
-            tags: metadata.get_string("tags", false)?,
+            //tags: metadata.get_string("tags", false)?,
             ..Default::default()
         })
     }
@@ -86,11 +90,11 @@ mod tests {
 
     #[test]
     fn test_parse_metadata() {
-        let mut input = File::open(rootdir().join("fixtures/metadata.txt")).unwrap();
+        let mut input = File::open(rootdir().join("fixtures/lizmap_server/metadata.txt")).unwrap();
 
         let plugin = Plugin::from_metadata(&mut input).unwrap();
 
-        assert_eq!(plugin.name, "Edigeo-processing");
-        assert!(plugin.experimental);
+        assert_eq!(plugin.name, "Lizmap server");
+        assert!(!plugin.experimental);
     }
 }

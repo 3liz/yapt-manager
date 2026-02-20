@@ -1,16 +1,20 @@
 //!
-//! Handle sources
+//! Cache remote source data
 //!
+//! Plugins server like plugins.qgis.org don't have an api;
+//! the (partial) content of available plugins must
+//! be downloaded and cached for subsequent requests.
 //!
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use crate::context::RunContext;
-use crate::echo::RefreshStyle;
-use crate::echo::{ALERT, CHECK, CROSS, OK};
+use crate::echo::{ALERT, CHECK, CROSS, OK, RefreshStyle};
 use crate::errors::Error;
 use crate::plugins::Plugin;
+use crate::version::Match;
 
 use anyhow::Context;
 use indicatif::ProgressBar;
@@ -20,14 +24,14 @@ use futures::stream::{Stream, StreamExt};
 use time::OffsetDateTime;
 
 use reqwest::{Response, StatusCode, header};
-use std::collections::{HashMap, hash_map};
+use std::collections::HashMap;
 
 use super::{Catalog, Select, rest};
 
 type PluginMap = HashMap<String, Vec<Plugin>>;
 
 // Plugin cache
-#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct Plugins {
     plugins: PluginMap,
 }
@@ -88,6 +92,10 @@ pub struct Cached {
     uri: String,
 }
 
+type CacheMap = HashMap<PathBuf, Plugins>;
+
+static SEARCH_CACHE: LazyLock<Mutex<CacheMap>> = LazyLock::new(|| Mutex::new(CacheMap::new()));
+
 impl Catalog for Cached {
     async fn search_all(
         &self,
@@ -95,7 +103,7 @@ impl Catalog for Cached {
         query: &Select<'_>,
     ) -> anyhow::Result<Vec<Plugin>> {
         Ok(self
-            .load_cache()?
+            .search_cache()?
             .plugins
             .drain()
             .filter_map(|(k, v)| query.matches_by_name(&k).then_some(v))
@@ -104,13 +112,14 @@ impl Catalog for Cached {
             .collect())
     }
 
+    /// Returns only the latest versions of each plugins
     async fn search(
         &self,
         context: &RunContext,
         query: &Select<'_>,
     ) -> anyhow::Result<Vec<Plugin>> {
         Ok(self
-            .load_cache()?
+            .search_cache()?
             .plugins
             .drain()
             .filter_map(|(k, v)| query.matches_by_name(&k).then_some(v))
@@ -187,6 +196,16 @@ impl Catalog for Cached {
         }
         Ok(())
     }
+
+    /// Find plugin with version request
+    async fn find<'a>(
+        &self,
+        context: &RunContext,
+        name: &str,
+        request: &Match<'a>,
+    ) -> anyhow::Result<Option<Plugin>> {
+        todo!();
+    }
 }
 
 pub trait ByteStream: Stream<Item = reqwest::Result<Bytes>> + std::marker::Unpin {}
@@ -219,11 +238,26 @@ impl Cached {
     fn load_cache(&self) -> anyhow::Result<Plugins> {
         let cache_file = self.cache_dir().join(Self::PLUGINS_FILE);
         Ok(if cache_file.exists() {
+            log::debug!("Loading cache data from {}", cache_file.display());
             serde_json::from_reader(fs::File::open(&cache_file)?)
                 .inspect_err(|_| log::error!("Failed to load cache file at {cache_file:?}"))?
         } else {
             CacheBuilder::new().build()
         })
+    }
+
+    /// Get plugins from search cache
+    fn search_cache(&self) -> anyhow::Result<Plugins> {
+        let mut cache = SEARCH_CACHE.lock().unwrap();
+        let cache_dir = self.cache_dir();
+        if let Some(plugins) = cache.get(cache_dir) {
+            log::debug!("Get cached plugins for {}", cache_dir.display());
+            Ok(plugins.clone())
+        } else {
+            let plugins = self.load_cache()?;
+            cache.insert(cache_dir.to_path_buf(), plugins.clone());
+            Ok(plugins)
+        }
     }
 
     async fn get_last_modified(
@@ -279,7 +313,7 @@ impl Cached {
     }
 
     /// Fetch remote source
-    pub async fn stream(
+    async fn stream(
         &mut self,
         client: &reqwest::Client,
         force: bool,
@@ -314,7 +348,7 @@ impl Cached {
     }
 
     /// Download data from stream
-    pub async fn download<S: ByteStream>(
+    async fn download<S: ByteStream>(
         &mut self,
         mut stream: S,
         progress: &ProgressBar,
@@ -354,15 +388,25 @@ impl Cached {
         }
         .build();
 
+        let cache_dir = self.cache_dir();
+
+        // Write catalog to file system
         serde_json::to_writer_pretty(
-            fs::File::create(self.cache_dir().join(Self::PLUGINS_FILE))?,
+            fs::File::create(cache_dir.join(Self::PLUGINS_FILE))?,
             &catalog,
         )?;
+
+        // Add catalog to search cache
+        SEARCH_CACHE
+            .lock()
+            .unwrap()
+            .insert(cache_dir.to_path_buf(), catalog);
+
         Ok(())
     }
 
     /// Save the cache metadata to disk
-    pub fn save_update(&mut self) -> anyhow::Result<()> {
+    fn save_update(&mut self) -> anyhow::Result<()> {
         self.last_update = Some(time::OffsetDateTime::now_utc());
         serde_json::to_writer_pretty(fs::File::create(&self.path)?, self)?;
         Ok(())

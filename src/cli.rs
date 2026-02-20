@@ -30,6 +30,7 @@ pub struct Cli {
     /// The cache directory (default to config dir)
     #[arg(global = true, long, help_heading = "Config options", env = EnvVars::YAPT_CACHE_DIR)]
     pub cache_dir: Option<PathBuf>,
+    /// Do no synchronize sources
     #[arg(global = true, long, help_heading = "Config options", env = EnvVars::YAPT_NO_SYNC)]
     pub no_sync: bool,
     /// The QGIS version
@@ -39,6 +40,16 @@ pub struct Cli {
     /// if available.
     #[arg(global = true, long, help_heading = "Config options", env = EnvVars::QGIS_VERSION)]
     pub qgis_version: Option<String>,
+    /// Plugin installation directory
+    ///
+    /// Default to local directory
+    #[arg(
+        global = true,
+        long, short = 'd',
+        help_heading = "Install options",
+        env = EnvVars::QGIS_PLUGINPATH,
+    )]
+    pub install_dir: Option<PathBuf>,
 
     // Global options
     /// Increase log verbosity
@@ -50,8 +61,10 @@ pub struct Cli {
         help_heading = "Global options",
     )]
     pub verbose: u8,
+    /// Display concise help
     #[arg(global = true, short, long, action = ArgAction::HelpShort, help_heading = "Global options")]
     pub help: Option<bool>,
+    /// Display the program version
     #[arg(short = 'V', long, action = ArgAction::Version, help_heading = "Global options")]
     pub version: Option<bool>,
 }
@@ -129,13 +142,15 @@ pub struct ListArgs {
     /// List outdated plugins
     #[arg(long, short)]
     pub outdated: bool,
-
-    #[command(flatten)]
-    pub resolve_args: ResolverArgs,
-
-    /// Select the output format
+    /// Use only the specified source when searching for latest version
     #[arg(long)]
-    pub format: OutputFormat,
+    pub source: Option<String>,
+    /// Include pre-release, development and experimental versions.
+    #[arg(long, env = EnvVars::QGIS_PLUGIN_INCLUDE_PRERELEASE)]
+    pub pre: bool,
+    // /// Select the output format
+    //#[arg(long)]
+    //pub format: OutputFormat,
 }
 
 #[derive(Debug, Default, Copy, Clone, clap::ValueEnum)]
@@ -143,8 +158,6 @@ pub enum OutputFormat {
     #[default]
     /// Output as table
     Table,
-    /// Output as frozen version list
-    List,
     /// Output as JSon
     Json,
 }
@@ -201,9 +214,6 @@ pub struct InstallerArgs {
     /// Set files permissions to 0644
     #[arg(long)]
     pub fix_permissions: bool,
-    /// Plugin destination folder
-    #[arg(long, short, env = EnvVars::QGIS_PLUGINPATH)]
-    pub destination: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -236,7 +246,7 @@ pub struct SearchArgs {
     pub all: bool,
 
     #[command(flatten)]
-    pub resolve_args: ResolverArgs,
+    pub resolver: ResolverArgs,
 }
 
 // Clap style

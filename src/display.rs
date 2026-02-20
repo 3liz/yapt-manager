@@ -6,8 +6,6 @@ use std::iter;
 
 use clap::builder::styling::{AnsiColor, Color, Style};
 
-use crate::plugins::Plugin;
-
 pub static HEAD: Style = Style::new().bold();
 pub static COL0: Style = Style::new()
     .bold()

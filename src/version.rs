@@ -2,7 +2,7 @@
 //! Version checks
 //!
 //! This is a best effort for comparing non SemVer compatible
-//! version scheme
+//! version scheme.
 //!
 //!
 use std::borrow::Cow;
@@ -238,6 +238,30 @@ impl<'a> Match<'a> {
     /// Check if it matches any version
     pub fn matches_any(&self) -> bool {
         *self == Self::ALL
+    }
+}
+
+// Implement serde support for Version<'static>
+
+use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
+
+impl Serialize for Version<'static> {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Version<'static> {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(Self::from(String::deserialize(deserializer)?))
     }
 }
 

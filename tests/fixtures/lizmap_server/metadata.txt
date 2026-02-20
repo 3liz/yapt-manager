@@ -1,0 +1,37 @@
+[general]
+name=Lizmap server
+qgisMinimumVersion=3.34
+qgisMaximumVersion=3.99
+about=This plugin is designed for QGIS server only. For more detailed information about Lizmap, install the other plugin called "Lizmap".
+category=Web
+icon=resources/icons/icon.png
+deprecated=False
+server=True
+supportsQt6=True
+description=Designed only for QGIS server. For QGIS Desktop, install the other plugin called "Lizmap".
+author=3liz
+email=info@3liz.com
+tags=online,server,web,webgis,webservice,webmapping,mobile,publication,wms,wfs,internet,cloud
+homepage=https://docs.lizmap.com/current/fr/install/pre_requirements.html#lizmap-qgis-server-plugin
+repository=https://github.com/3liz/qgis-lizmap-server-plugin
+tracker=https://github.com/3liz/qgis-lizmap-server-plugin/issues
+experimental=False
+version=2.14.2
+commitSha1=f38a1dff0056e5dcc03a5ca9df71084d2f8c2900
+dateTime=2026-02-20T16:07:42Z
+changelog=
+	Version 2.14.1:
+	* Fix: Use access control to filter Expression ReplaceExpressionText
+	* Fix: Use access control to filter Expression VirtualFields
+	* Enforce type annotations and code enhancement
+	
+	Version 2.14.0:
+	* Raise to QGIS Server 3.34 minimum
+	* Raise to Python 3.9 minimum
+	* Improve support for QJazz
+	* Tests: Sanitize/simplify python code
+	
+	Version 2.13.4:
+	* Fix: `legendKeys` has been added in QGIS 3.32 replaced by `legendSymbolItems`
+	
+

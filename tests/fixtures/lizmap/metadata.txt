@@ -1,0 +1,46 @@
+[general]
+name=Lizmap
+qgisMinimumVersion=3.34
+qgisMaximumVersion=3.99
+about=With a few clicks, it's possible to publish and share your QGIS projects on the Web via Lizmap Web Client, by 3liz.com. QGIS Server is used in the background so all the symbology is kept. The edition forms in QGIS are also available. Demo : https://demo.lizmap.com and documentation : https://docs.lizmap.com and hosting solutions https://lizmap.com
+category=Web
+commitNumber=
+icon=resources/icons/icon.png
+deprecated=False
+server=False
+supportsQt6=true
+description=Publish and share your QGIS maps on the Web via Lizmap Web Client, by 3liz.com
+author=3Liz
+email=info@3liz.com
+tags=online,server,web,webgis,webservice,webmapping,mobile,publication,wms,wfs,wps,internet,cloud
+homepage=https://docs.lizmap.com/
+repository=https://github.com/3liz/lizmap-plugin
+tracker=https://github.com/3liz/lizmap-plugin/issues
+experimental=True
+version=5.0.0-alpha.1
+commitSha1=69fe1d772901a4ad27367e0045a829b29840431d
+dateTime=2026-02-20T16:21:39Z
+changelog=
+	Version 5.0.0-alpha.1:
+	* Raise to minimum QGIS 3.34
+	* Fix `WMSAddWktGeometry` set as an integer instead of a boolean in .qgs
+	* Refactor tests to run on QGIS 3.34, 340 and 3.44
+	* Check just for int4 PK fields
+	* Fix `children_lizmap_features_table` default value to `False`
+	* Fix `automatic_permalink` default value to `False`
+	* Feature: Add expand/collapse and search filter to Layers panel
+	* Feature: DXF export+access control
+	* Feature: Geolocation precision and direction control
+	* Feature: Exclude basemaps from single wms control
+	
+	Version 4.5.3:
+	* Add log debug about WMS capability
+	* Trust project by default and add geometry to WMS GetFeatureInfo for newly CFG file
+	* Skip Python error if the metadata was not loaded
+	* Add configuration for Lizmap Web Client 3.11
+	
+	Version 4.5.2:
+	* Add check about PostgreSQL raster layer
+	* Add helper about Lizmap Features Table, for Lizmap Web Client 3.9.0
+	
+

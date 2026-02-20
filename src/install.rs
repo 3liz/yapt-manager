@@ -3,82 +3,126 @@
 //!
 use std::fs;
 use std::io::Write;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use anyhow::Context;
 use futures::stream::StreamExt;
-use indicatif::ProgressBar;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::context::RunContext;
+use crate::context::{RunContext, SearchItem, Select};
 use crate::echo::InstallProgress;
 use crate::plugins::Plugin;
+use crate::version::{Match, Version};
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct LockEntry {
-    pub name: String,
-    pub source: String,
-    pub version: String,
+pub struct InstallItem {
+    plugin: Plugin,
+    source: Option<Rc<str>>,
+    pub outdated: bool,
     pub folder: PathBuf,
+    pub latest: Option<Version<'static>>,
 }
 
-#[derive(Default, Debug, Deserialize, Serialize)]
-pub struct Installer {
-    locked: Vec<LockEntry>,
-    #[serde(skip)]
-    path: PathBuf,
+impl InstallItem {
+    #[inline]
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_ref().map(|s| &s[..])
+    }
+    #[inline]
+    pub fn latest(&self) -> Option<&Version<'static>> {
+        self.latest.as_ref()
+    }
 }
+
+impl Deref for InstallItem {
+    type Target = Plugin;
+
+    fn deref(&self) -> &Self::Target {
+        &self.plugin
+    }
+}
+
+impl AsRef<Plugin> for InstallItem {
+    fn as_ref(&self) -> &Plugin {
+        &self.plugin
+    }
+}
+
+pub struct Installer;
 
 impl Installer {
-    const LOCK_FILE: &'static str = "yapt.lock";
-
-    pub fn read_from(path: &Path) -> anyhow::Result<Self> {
-        let path = path.join(Self::LOCK_FILE);
-        Ok(if path.exists() {
-            let file = fs::File::open(&path)?;
-            Self {
-                path,
-                ..serde_json::from_reader(file)?
-            }
-        } else {
-            Self {
-                path,
-                ..Default::default()
-            }
-        })
-    }
-
-    /// Save lock file
-    pub fn save(&self) -> anyhow::Result<()> {
-        serde_json::to_writer_pretty(fs::File::create(&self.path)?, self)?;
-        Ok(())
-    }
-
-    /// Iter lock entries
-    pub fn iter(&self) -> impl Iterator<Item = &LockEntry> {
-        self.locked.iter()
-    }
-
-    // Update a lock entry
-    pub fn update(&mut self, source: String, plugin: &Plugin, folder: PathBuf) -> &mut Self {
-        if let Some(lock) = self.locked.iter_mut().find(|l| l.name == plugin.name) {
-            lock.version = plugin.version.to_string();
-            lock.source = source;
-        } else {
-            self.locked.push(LockEntry {
-                name: plugin.name.clone(),
-                version: plugin.version.to_string(),
-                source,
-                folder,
+    /// List installed plugins
+    pub fn list(
+        context: &RunContext,
+        install_dir: &Path,
+        pre: bool,
+        source: Option<&String>,
+    ) -> anyhow::Result<Vec<InstallItem>> {
+        // Look for installed plugins
+        let globexpr = install_dir.join("**/metadata.txt");
+        glob::glob(&format!("{}", globexpr.display()))?
+            .map(|entry| {
+                let path = entry?;
+                log::debug!("Found plugin metadata in {}", path.display());
+                Self::update_from_metadata(context, &path, pre, source)
             })
-        }
-        self
+            .collect() //::<anyhow::Result<Vec<SearchItem>>>()
+    }
+
+    /// Update from metadata
+    ///
+    /// Search for plugin remote sources, return an error
+    /// if the plugin  is not found.
+    fn update_from_metadata(
+        context: &RunContext,
+        path: &Path,
+        pre: bool,
+        source: Option<&String>,
+    ) -> anyhow::Result<InstallItem> {
+        // Read plugin info from metadata
+        let plugin = Plugin::from_metadata(&mut fs::File::open(path)?)?;
+        let folder = path.parent().unwrap().to_path_buf();
+        Ok(
+            if let Some(latest) = context
+                .search(
+                    Select {
+                        key: plugin.name.as_str().into(),
+                        by_name: true,
+                        server: plugin.server,
+                        experimental: pre || plugin.experimental,
+                        deprecated: plugin.deprecated,
+                        ..Default::default()
+                    },
+                    source,
+                    false, // Search only latests
+                )?
+                .into_iter()
+                .next()
+            {
+                let outdated = latest.version > plugin.version;
+                InstallItem {
+                    plugin,
+                    folder,
+                    source: Some(latest.source.clone()),
+                    latest: outdated.then_some(latest.plugin.version),
+                    outdated: outdated,
+                }
+            } else {
+                InstallItem {
+                    plugin,
+                    folder,
+                    outdated: false,
+                    source: None,
+                    latest: None,
+                }
+            },
+        )
     }
 
     // Download a plugin
-    pub async fn download_plugin(
-        &self,
+    async fn download_plugin(
         context: &RunContext,
         source: String,
         plugin: &Plugin,
@@ -114,13 +158,11 @@ impl Installer {
             }
             file.flush()?;
         }
-        self.install_archive(context, tmpfile.path(), dest, &progress)
+        Self::install_archive(tmpfile.path(), dest, &progress)
     }
 
     // Install from plugin archive
-    pub fn install_archive(
-        &self,
-        context: &RunContext,
+    fn install_archive(
         archive: &Path,
         dest: &Path,
         progress: &InstallProgress<'_>,

@@ -2,23 +2,23 @@
 //! Run context
 //!
 use std::cell::{OnceCell, Ref, RefCell, RefMut};
-use std::fmt;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-use std::string::FromUtf8Error;
 
 use anyhow::Context;
 use futures::future::join_all;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
-use crate::catalog::{Catalog, CatalogImpl, Select};
+use crate::catalog::{Catalog, CatalogImpl};
 use crate::config::{Config, Source};
 use crate::echo::{RefreshStyle, SearchProgress};
 use crate::plugins::Plugin;
 use crate::statics::EnvVars;
-use crate::version::SemVer;
+use crate::version::{Match, SemVer};
+
+pub use crate::catalog::Select;
 
 const USER_AGENT: &str = "Yapt manager";
 
@@ -31,6 +31,10 @@ pub struct RunContext {
 }
 
 impl RunContext {
+    pub fn install_dir(install_dir: Option<PathBuf>) -> PathBuf {
+        install_dir.unwrap_or_else(|| Path::new("./").to_path_buf())
+    }
+
     pub fn new(conf_dir: Option<PathBuf>, cache_dir: Option<PathBuf>) -> anyhow::Result<Self> {
         let conf_dir = conf_dir.unwrap_or_else(|| {
             let mut p = std::env::current_dir().unwrap();
@@ -117,6 +121,42 @@ impl RunContext {
         .with_context(|| format!("Failed to load cache from {path:?}"))
     }
 
+    /// Find a plugin
+    pub async fn find(
+        &mut self,
+        plugin_name: &str,
+        request: Match<'_>,
+        source: Option<&String>,
+    ) -> anyhow::Result<Option<Plugin>> {
+        let rt = Self::create_runtime();
+
+        let progress = SearchProgress::new()?;
+        let conf = self.config();
+
+        if let Some(name) = source {
+            let source = conf.try_get_source(name)?;
+            let catalog = self.catalog(name, source, false)?;
+            progress.set_message(name.clone());
+            rt.block_on(catalog.find(self, plugin_name, &request))
+        } else if conf.num_sources() == 1 {
+            let (name, source) = conf.iter_sources().next().unwrap();
+            let catalog = self.catalog(name, source, false)?;
+            progress.set_message(name.clone());
+            rt.block_on(catalog.find(self, plugin_name, &request))
+        } else {
+            rt.block_on(async {
+                for (name, source) in conf.iter_sources() {
+                    let catalog = self.catalog(name, source, false)?;
+                    progress.set_message(name.clone());
+                    if let Some(plugin) = catalog.find(self, plugin_name, &request).await? {
+                        return Ok(Some(plugin));
+                    }
+                }
+                Ok(None)
+            })
+        }
+    }
+
     /// Search for plugins
     pub fn search(
         &self,
@@ -124,7 +164,7 @@ impl RunContext {
         source: Option<&String>,
         all: bool,
     ) -> anyhow::Result<Vec<SearchItem>> {
-        let rt = create_runtime();
+        let rt = Self::create_runtime();
 
         let progress = SearchProgress::new()?;
         let conf = self.config();
@@ -142,7 +182,7 @@ impl RunContext {
                 .collect()
         }
 
-        let plugins = if let Some(name) = source {
+        let mut plugins = if let Some(name) = source {
             let source = conf.try_get_source(name)?;
             let catalog = self.catalog(name, source, false)?;
             progress.set_message(name.clone());
@@ -173,13 +213,17 @@ impl RunContext {
             .flatten()
             .collect()
         };
+        if query.by_name {
+            // Sort by version in decreasing order
+            plugins.sort_by(|a, b| b.version.partial_cmp(&a.version).unwrap());
+        }
         progress.finish_and_clear();
         Ok(plugins)
     }
 
     /// Check source for update
     pub fn check_sources(&self, source: Option<&String>) -> anyhow::Result<()> {
-        let rt = create_runtime();
+        let rt = Self::create_runtime();
 
         let m = MultiProgress::new();
 
@@ -222,7 +266,7 @@ impl RunContext {
 
     /// Refresh source's caches
     pub fn refresh_sources(&self, force: bool, source: Option<&String>) -> anyhow::Result<()> {
-        let rt = create_runtime();
+        let rt = Self::create_runtime();
 
         let m = MultiProgress::new();
 
@@ -295,22 +339,31 @@ impl RunContext {
             }
         }
     }
+
+    // Create tokio runtime
+    pub(crate) fn create_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+            .expect("Failed to create tokio runtime")
+    }
 }
 
 // Search results
 pub struct SearchItem {
-    plugin: Plugin,
-    pub source: Rc<str>,
+    pub(crate) plugin: Plugin,
+    pub(crate) source: Rc<str>,
 }
 
 impl SearchItem {
     #[inline]
-    pub fn source(this: &Self) -> &str {
-        &this.source[..]
+    pub fn source(&self) -> &str {
+        &self.source[..]
     }
-    pub fn status(this: &Self) -> String {
+    pub fn status(&self) -> String {
         let mut st = [b'-'; 4];
-        let p = &this.plugin;
+        let p = &self.plugin;
         if p.server {
             st[0] = b'S'
         }
@@ -335,11 +388,8 @@ impl Deref for SearchItem {
     }
 }
 
-// Create tokio runtime
-fn create_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .expect("Failed to create tokio runtime")
+impl AsRef<Plugin> for SearchItem {
+    fn as_ref(&self) -> &Plugin {
+        &self.plugin
+    }
 }

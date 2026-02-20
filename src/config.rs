@@ -47,6 +47,7 @@ impl Source {
 #[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Config {
+    // XXX Change to ordered Vec
     sources: HashMap<String, Source>,
 
     #[serde(skip)]
