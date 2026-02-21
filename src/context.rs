@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use anyhow::Context;
 use futures::future::join_all;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar};
 
 use crate::catalog::{Catalog, CatalogImpl};
 use crate::config::{Config, Source};
@@ -23,7 +23,6 @@ pub use crate::catalog::Select;
 const USER_AGENT: &str = "Yapt manager";
 
 pub struct RunContext {
-    conf_dir: PathBuf,
     cache_dir: PathBuf,
     config: RefCell<Config>,
     client: OnceCell<Result<reqwest::Client, reqwest::Error>>,
@@ -45,7 +44,6 @@ impl RunContext {
         let config = RefCell::new(Config::load_from(&conf_dir)?);
 
         Ok(Self {
-            conf_dir,
             cache_dir,
             config,
             qgis_version: SemVer::None,
@@ -66,11 +64,6 @@ impl RunContext {
     #[inline]
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
-    }
-
-    #[inline]
-    pub fn conf_dir(&self) -> &Path {
-        &self.conf_dir
     }
 
     /// Return an http client
@@ -119,42 +112,6 @@ impl RunContext {
                 .into_owned(),
         )
         .with_context(|| format!("Failed to load cache from {path:?}"))
-    }
-
-    /// Find a plugin
-    pub async fn find(
-        &mut self,
-        plugin_name: &str,
-        request: Match<'_>,
-        source: Option<&String>,
-    ) -> anyhow::Result<Option<Plugin>> {
-        let rt = Self::create_runtime();
-
-        let progress = SearchProgress::new()?;
-        let conf = self.config();
-
-        if let Some(name) = source {
-            let source = conf.try_get_source(name)?;
-            let catalog = self.catalog(name, source, false)?;
-            progress.set_message(name.clone());
-            rt.block_on(catalog.find(self, plugin_name, &request))
-        } else if conf.num_sources() == 1 {
-            let (name, source) = conf.iter_sources().next().unwrap();
-            let catalog = self.catalog(name, source, false)?;
-            progress.set_message(name.clone());
-            rt.block_on(catalog.find(self, plugin_name, &request))
-        } else {
-            rt.block_on(async {
-                for (name, source) in conf.iter_sources() {
-                    let catalog = self.catalog(name, source, false)?;
-                    progress.set_message(name.clone());
-                    if let Some(plugin) = catalog.find(self, plugin_name, &request).await? {
-                        return Ok(Some(plugin));
-                    }
-                }
-                Ok(None)
-            })
-        }
     }
 
     /// Search for plugins
@@ -219,6 +176,33 @@ impl RunContext {
         }
         progress.finish_and_clear();
         Ok(plugins)
+    }
+
+    /// Find plugin matching version request
+    pub fn find(
+        &self,
+        name: &str,
+        request: &Match<'_>,
+        pre: bool,
+        deprecated: bool,
+        source: Option<&String>,
+    ) -> anyhow::Result<Vec<SearchItem>> {
+        let select = Select {
+            key: name.into(),
+            by_name: true,
+            experimental: pre,
+            deprecated,
+            ..Default::default()
+        };
+
+        Ok(if request.matches_any() {
+            self.search(select, source, false)?
+        } else {
+            self.search(select, source, true)?
+                .into_iter()
+                .filter(|p| request.matches(&p.version))
+                .collect()
+        })
     }
 
     /// Check source for update

@@ -11,10 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use crate::context::RunContext;
-use crate::echo::{ALERT, CHECK, CROSS, OK, RefreshStyle};
+use crate::echo::RefreshStyle;
 use crate::errors::Error;
 use crate::plugins::Plugin;
-use crate::version::Match;
 
 use anyhow::Context;
 use indicatif::ProgressBar;
@@ -99,7 +98,7 @@ static SEARCH_CACHE: LazyLock<Mutex<CacheMap>> = LazyLock::new(|| Mutex::new(Cac
 impl Catalog for Cached {
     async fn search_all(
         &self,
-        context: &RunContext,
+        _context: &RunContext,
         query: &Select<'_>,
     ) -> anyhow::Result<Vec<Plugin>> {
         Ok(self
@@ -115,7 +114,7 @@ impl Catalog for Cached {
     /// Returns only the latest versions of each plugins
     async fn search(
         &self,
-        context: &RunContext,
+        _context: &RunContext,
         query: &Select<'_>,
     ) -> anyhow::Result<Vec<Plugin>> {
         Ok(self
@@ -195,16 +194,6 @@ impl Catalog for Cached {
             }
         }
         Ok(())
-    }
-
-    /// Find plugin with version request
-    async fn find<'a>(
-        &self,
-        context: &RunContext,
-        name: &str,
-        request: &Match<'a>,
-    ) -> anyhow::Result<Option<Plugin>> {
-        todo!();
     }
 }
 

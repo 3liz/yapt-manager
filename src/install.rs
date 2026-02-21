@@ -10,12 +10,11 @@ use std::rc::Rc;
 use anyhow::Context;
 use futures::stream::StreamExt;
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
 
-use crate::context::{RunContext, SearchItem, Select};
+use crate::context::{RunContext, Select};
 use crate::echo::InstallProgress;
 use crate::plugins::Plugin;
-use crate::version::{Match, Version};
+use crate::version::Version;
 
 pub struct InstallItem {
     plugin: Plugin,
@@ -60,8 +59,8 @@ impl Installer {
         pre: bool,
         source: Option<&String>,
     ) -> anyhow::Result<Vec<InstallItem>> {
-        // Look for installed plugins
-        let globexpr = install_dir.join("**/metadata.txt");
+        // Look for installed plugins (no-recurse)
+        let globexpr = install_dir.join("*/metadata.txt");
         glob::glob(&format!("{}", globexpr.display()))?
             .map(|entry| {
                 let path = entry?;
@@ -91,7 +90,7 @@ impl Installer {
                         key: plugin.name.as_str().into(),
                         by_name: true,
                         server: plugin.server,
-                        experimental: pre || plugin.experimental,
+                        experimental: pre,
                         deprecated: plugin.deprecated,
                         ..Default::default()
                     },
@@ -107,7 +106,7 @@ impl Installer {
                     folder,
                     source: Some(latest.source.clone()),
                     latest: outdated.then_some(latest.plugin.version),
-                    outdated: outdated,
+                    outdated,
                 }
             } else {
                 InstallItem {

@@ -79,10 +79,15 @@ pub enum Commands {
     },
     /// List installed plugins
     List(ListArgs),
+    /// Find plugins
+    ///
+    /// Display the list of installable plugins matching version
+    /// specifiers. Without specifier, always display the latest version
+    /// available for each source.
+    Find(FindArgs),
     /// Install plugin(s)
     Install(InstallArgs),
     /// Upgrade installed plugins with remote sources
-    #[command(alias = "sync")]
     Upgrade(UpgradeArgs),
     /// Search for plugins
     Search(SearchArgs),
@@ -163,8 +168,18 @@ pub enum OutputFormat {
 }
 
 #[derive(Args, Debug)]
+pub struct FindArgs {
+    /// List of plugins with optional version specifiers.
+    #[arg(name = "NAME", required = true)]
+    pub names: Vec<String>,
+
+    #[command(flatten)]
+    pub resolver: ResolverArgs,
+}
+
+#[derive(Args, Debug)]
 pub struct InstallArgs {
-    /// Install all listed plugins
+    /// Plugins to install
     ///
     /// The version can be specified using comparison specifiers:
     ///
@@ -185,21 +200,21 @@ pub struct InstallArgs {
     ///
     /// ex: "name==release"
     ///
-    #[arg(name = "NAME")]
+    #[arg(name = "NAME", required = true)]
     pub names: Vec<String>,
 
     #[command(flatten)]
-    pub resolve_args: ResolverArgs,
+    pub resolver: ResolverArgs,
     #[command(flatten)]
-    pub install_args: InstallerArgs,
+    pub installer: InstallerArgs,
 }
 
 #[derive(Args, Debug)]
 pub struct UpgradeArgs {
     #[command(flatten)]
-    pub resolve_args: ResolverArgs,
+    pub resolver: ResolverArgs,
     #[command(flatten)]
-    pub install_args: InstallerArgs,
+    pub installer: InstallerArgs,
 }
 
 #[derive(Args, Debug)]

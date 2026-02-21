@@ -9,7 +9,7 @@ use strsim::jaro_winkler;
 
 use crate::context::RunContext;
 use crate::plugins::Plugin;
-use crate::version::{Match, SemVer};
+use crate::version::SemVer;
 
 pub(crate) mod cached;
 
@@ -149,21 +149,6 @@ impl Catalog for CatalogImpl {
             }
         }
     }
-
-    /// Find plugin with version request
-    async fn find(
-        &self,
-        context: &RunContext,
-        name: &str,
-        request: &Match<'_>,
-    ) -> anyhow::Result<Option<Plugin>> {
-        match self {
-            Self::Cached(cat) => cat.find(context, name, request).await,
-            Self::Rest => {
-                todo!();
-            }
-        }
-    }
 }
 
 pub trait Catalog {
@@ -204,11 +189,4 @@ pub trait Catalog {
         context: &RunContext,
         bar: ProgressBar,
     ) -> anyhow::Result<()>;
-
-    async fn find<'a>(
-        &self,
-        context: &RunContext,
-        name: &str,
-        request: &Match<'a>,
-    ) -> anyhow::Result<Option<Plugin>>;
 }

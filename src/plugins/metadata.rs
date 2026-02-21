@@ -2,7 +2,6 @@
 //! Parse metadata
 //!
 use std::io::Read;
-use std::str::FromStr;
 
 use anyhow::Context;
 
@@ -39,8 +38,8 @@ impl Plugin {
             slug,
             version: Version::from(metadata.get_string("version", true)?),
             description: metadata.get_string("description", true)?,
-            //qgis_minimum_version: metadata.get_string("qgisMinimumVersion", true)?,
-            //qgis_maximum_version: metadata.get_string("qgisMaximumVersion", false)?,
+            qgis_minimum_version: metadata.get_string("qgisMinimumVersion", true)?,
+            qgis_maximum_version: metadata.get_string("qgisMaximumVersion", false)?,
             //author_name: metadata.get_string("author", true)?,
             experimental: metadata.get_bool("experimental", false)?,
             deprecated: metadata.get_bool("deprecated", false)?,

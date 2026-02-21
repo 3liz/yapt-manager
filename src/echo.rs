@@ -10,13 +10,20 @@ pub static TABINF: Style = Style::new()
     .fg_color(Some(Color::Ansi(AnsiColor::Black)))
     .bg_color(Some(Color::Ansi(AnsiColor::Cyan)));
 
-// Emojis
+pub static NOTE: Style = Style::new()
+    .fg_color(Some(Color::Ansi(AnsiColor::BrightBlack)))
+    .italic();
 
-pub const CHECK: &str = "\u{2713}";
-pub const CROSS: &str = "\u{274c}";
-pub const LARRW: &str = "\u{2192}";
+// Emojis
+pub mod glyph {
+    pub const CHECK: &str = "\u{2713}";
+    pub const CROSS: &str = "\u{274c}";
+    //pub const ASTER: &str = "\u{002a}";
+    //pub const LARRW: &str = "\u{2192}";
+}
 
 // Progress bar styles
+use glyph::{CHECK, CROSS};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle, style::TemplateError};
 
 pub type StyleResult = Result<ProgressStyle, TemplateError>;

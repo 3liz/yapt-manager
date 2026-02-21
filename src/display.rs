@@ -65,9 +65,11 @@ pub trait Table<T, const N: usize> {
     fn headers(&self) -> impl Iterator<Item = &str>;
     fn columns<'a>(&self, t: &'a T) -> impl Iterator<Item = Cow<'a, str>>;
 
+    /*
     fn num_cols(&self) -> usize {
         N
     }
+    */
 
     // Create a tabular string representation
     fn tabular<'a>(&self, i: impl Iterator<Item = &'a T>) -> String

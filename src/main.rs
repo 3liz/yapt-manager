@@ -17,9 +17,9 @@ mod plugins;
 mod statics;
 mod version;
 
-use cli::{Cli, Commands, ListArgs, SearchArgs};
-use display::{Table, column, print_table};
-use echo::{INFO, OK, TABINF};
+use cli::{Cli, Commands, FindArgs, ListArgs, SearchArgs};
+use display::{HEAD, column, print_table};
+use echo::{INFO, NOTE, OK, TABINF};
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -39,6 +39,41 @@ fn main() -> anyhow::Result<()> {
             cmd_source(context, command, qgis_version)?;
         }
 
+        Find(FindArgs { names, resolver }) => {
+            use context::SearchItem;
+            let source = resolver.source;
+            context
+                .qgis_version(qgis_version)?
+                .sync(no_sync, source.as_ref())?;
+
+            for name in names {
+                let (name, request) = version::parse_requirement(&name)?;
+                let candidates = context.find(
+                    name,
+                    &request,
+                    resolver.pre,
+                    resolver.deprecated,
+                    source.as_ref(),
+                )?;
+                println!("{HEAD}{name}{HEAD:#}:");
+                if candidates.is_empty() {
+                    println!("{INFO}No matches{INFO:#}");
+                } else {
+                    print_table(
+                        candidates.iter(),
+                        (
+                            column("NAME", |p: &SearchItem| p.name.as_str().into()),
+                            column("VERSION", |p: &SearchItem| p.version.as_str().into()),
+                            column("QGIS", |p: &SearchItem| {
+                                p.qgis_minimum_version.as_str().into()
+                            }),
+                            column("SOURCE", |p: &SearchItem| p.source().into()),
+                        ),
+                    );
+                }
+            }
+        }
+
         List(ListArgs {
             outdated,
             source,
@@ -54,21 +89,28 @@ fn main() -> anyhow::Result<()> {
                 pre,
                 source.as_ref(),
             )?;
-            print_table(
-                items.iter().filter(|p| !outdated || p.outdated),
-                (
-                    column("NAME", |p: &InstallItem| p.name.as_str().into()),
-                    column("VERSION", |p: &InstallItem| p.version.as_str().into()),
-                    column("QGIS MIN", |p: &InstallItem| {
-                        p.qgis_minimum_version.as_str().into()
-                    }),
-                    column("SOURCE", |p: &InstallItem| p.source().unwrap_or("-").into()),
-                    column("LATEST", |p: &InstallItem| 
-                        p.latest().map(|v| v.as_str()).unwrap_or("-").into()),
- 
-                    column("FOLDER", |p: &InstallItem| p.folder.display().to_string().into()),
-                ),
-            );
+            if items.is_empty() {
+                eprintln!("{INFO}No plugins found...{INFO:#}");
+            } else {
+                print_table(
+                    items.iter().filter(|p| !outdated || p.outdated),
+                    (
+                        column("NAME", |p: &InstallItem| p.name.as_str().into()),
+                        column("VERSION", |p: &InstallItem| p.version.as_str().into()),
+                        column("QGIS\u{002a}", |p: &InstallItem| {
+                            p.qgis_minimum_version.as_str().into()
+                        }),
+                        column("SOURCE", |p: &InstallItem| p.source().unwrap_or("-").into()),
+                        column("LATEST", |p: &InstallItem| {
+                            p.latest().map(|v| v.as_str()).unwrap_or("-").into()
+                        }),
+                        column("FOLDER", |p: &InstallItem| {
+                            p.folder.display().to_string().into()
+                        }),
+                    ),
+                );
+                eprintln!("{NOTE}(\u{002a}) Minimum QGIS versions supported{NOTE:#}");
+            }
         }
 
         Install(args) => {
@@ -103,24 +145,28 @@ fn main() -> anyhow::Result<()> {
                     source.as_ref(),
                     all,
                 )?;
-            items.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
-            eprint!(" {TABINF} S {TABINF:#} Server");
-            eprint!(" {TABINF} X {TABINF:#} Experimental");
-            eprint!(" {TABINF} T {TABINF:#} Trusted");
-            eprint!(" {TABINF} D {TABINF:#} Deprecated");
-            eprintln!();
-            print_table(
-                items.iter(),
-                (
-                    column("NAME", |p: &SearchItem| p.name.as_str().into()),
-                    column("VERSION", |p: &SearchItem| p.version.as_str().into()),
-                    column("QGIS MIN", |p: &SearchItem| {
-                        p.qgis_minimum_version.as_str().into()
-                    }),
-                    column("STATUS", |p: &SearchItem| p.status().into()),
-                    column("SOURCE", |p: &SearchItem| p.source().into()),
-                ),
-            );
+            if items.is_empty() {
+                eprintln!("{INFO}No plugins found...{INFO:#}");
+            } else {
+                items.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
+                eprint!(" {TABINF} S {TABINF:#} Server");
+                eprint!(" {TABINF} X {TABINF:#} Experimental");
+                eprint!(" {TABINF} T {TABINF:#} Trusted");
+                eprint!(" {TABINF} D {TABINF:#} Deprecated");
+                eprintln!();
+                print_table(
+                    items.iter(),
+                    (
+                        column("NAME", |p: &SearchItem| p.name.as_str().into()),
+                        column("VERSION", |p: &SearchItem| p.version.as_str().into()),
+                        column("QGIS", |p: &SearchItem| {
+                            p.qgis_minimum_version.as_str().into()
+                        }),
+                        column("STATUS", |p: &SearchItem| p.status().into()),
+                        column("SOURCE", |p: &SearchItem| p.source().into()),
+                    ),
+                );
+            }
         }
     }
     Ok(())

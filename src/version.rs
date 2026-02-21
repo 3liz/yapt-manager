@@ -224,7 +224,6 @@ impl<'a> Match<'a> {
                 // If this is a semver request
                 // then we assume that the version is also, at least partially,
                 // semver compatible, otherwise comparison cannot occurs.
-                eprintln!("## {self:?} {ver:?}");
                 match &ver.version {
                     SemVer::Full(v) | SemVer::Partial(v) => req.matches(v),
                     _ => false,
