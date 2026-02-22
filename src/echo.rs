@@ -17,14 +17,15 @@ pub static NOTE: Style = Style::new()
 // Emojis
 pub mod glyph {
     pub const CHECK: &str = "\u{2713}";
-    pub const CROSS: &str = "\u{274c}";
+    pub const CROSS: &str = "\u{2715}";
+    pub const WARN: &str = "\u{26a0}";
+    pub const ARROW: &str = "\u{2192}";
     //pub const ASTER: &str = "\u{002a}";
-    //pub const LARRW: &str = "\u{2192}";
 }
 
 // Progress bar styles
 use glyph::{CHECK, CROSS};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle, style::TemplateError};
+use indicatif::{ProgressBar, ProgressStyle, style::TemplateError};
 
 pub type StyleResult = Result<ProgressStyle, TemplateError>;
 
@@ -61,28 +62,26 @@ impl SearchProgress {
 }
 
 /// Install progress Bar
-pub struct InstallProgress<'a> {
-    name: &'a str,
+#[derive(Clone)]
+pub struct InstallProgress {
     bar: ProgressBar,
 }
 
-impl<'a> InstallProgress<'a> {
-    pub fn with_multiprogress(name: &'a str, mp: &MultiProgress) -> Result<Self, TemplateError> {
-        let bar = mp.add(ProgressBar::no_length());
+impl InstallProgress {
+    pub fn new(name: &str, bar: ProgressBar) -> Result<Self, TemplateError> {
         bar.set_style(ProgressStyle::with_template(&format!(
             " {name:<25} {{spinner:.blue}} {{decimal_bytes}}"
         ))?);
-        Ok(Self { name, bar })
+        Ok(Self { bar })
     }
 
-    pub fn set_length(&self, size: u64) -> Result<(), TemplateError> {
+    pub fn set_length(&self, name: &str, size: u64) -> Result<(), TemplateError> {
         self.bar.set_length(size);
         self.bar.set_style(
             ProgressStyle::with_template(&format!(
-                " {:<25} {{bar}} {{decimal_bytes}}/{{decimal_total_bytes}}",
-                self.name
+                "{INFO} {name} {{bar}} {{decimal_bytes}}/{{decimal_total_bytes}}{INFO:#}"
             ))?
-            .progress_chars("--"),
+            .progress_chars("-- "),
         );
         self.bar.tick();
         Ok(())
@@ -93,21 +92,8 @@ impl<'a> InstallProgress<'a> {
         self.bar.inc(size as u64);
     }
 
-    pub fn success(&self) -> Result<(), TemplateError> {
-        self.bar.set_style(ProgressStyle::with_template(&format!(
-            "\t{OK}{CHECK}{}{{msg}}{OK:#}",
-            self.name
-        ))?);
-        self.bar.tick();
-        Ok(())
-    }
-
-    pub fn error(&self) -> Result<(), TemplateError> {
-        self.bar.set_style(ProgressStyle::with_template(&format!(
-            "\t{ALERT}{CROSS}{}{{msg}}{ALERT:#}",
-            self.name
-        ))?);
-        self.bar.tick();
-        Ok(())
+    #[inline]
+    pub fn finish(&self) {
+        self.bar.finish_and_clear();
     }
 }

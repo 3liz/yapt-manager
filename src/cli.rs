@@ -207,6 +207,14 @@ pub struct InstallArgs {
     pub resolver: ResolverArgs,
     #[command(flatten)]
     pub installer: InstallerArgs,
+
+    /// Upgrade plugin to latest version, if `--pre` is specified, the update will update
+    /// to the latest experimental version if any.
+    #[arg(long, short = 'U')]
+    pub upgrade: bool,
+    /// Only show what would be installed
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -215,14 +223,13 @@ pub struct UpgradeArgs {
     pub resolver: ResolverArgs,
     #[command(flatten)]
     pub installer: InstallerArgs,
+    /// Only show what would be installed
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
 pub struct InstallerArgs {
-    /// Upgrade plugin to latest version, if `--pre` is specified, the update will update
-    /// to the latest experimental version if any.
-    #[arg(long, short = 'U')]
-    pub upgrade: bool,
     /// Force (re)installing
     #[arg(long)]
     pub reinstall: bool,
@@ -239,9 +246,6 @@ pub struct ResolverArgs {
     /// Include deprecated versions
     #[arg(long)]
     pub deprecated: bool,
-    /// Consider only server plugins
-    #[arg(long)]
-    pub server: bool,
     /// Use only the specified source
     #[arg(long)]
     pub source: Option<String>,
@@ -255,6 +259,10 @@ pub struct SearchArgs {
     /// Only search by plugin name
     #[arg(long)]
     pub by_name: bool,
+
+    /// Consider only server plugins
+    #[arg(long)]
+    pub server: bool,
 
     /// Return all versions of plugins
     #[arg(long)]

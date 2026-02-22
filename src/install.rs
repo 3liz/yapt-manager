@@ -1,41 +1,47 @@
 //!
 //! Handle plugin installation
 //!
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 use anyhow::Context;
 use futures::stream::StreamExt;
 use reqwest::StatusCode;
 
-use crate::context::{RunContext, Select};
+use crate::context::{RunContext, SearchItem, Select};
 use crate::echo::InstallProgress;
 use crate::plugins::Plugin;
 use crate::version::Version;
 
-pub struct InstallItem {
-    plugin: Plugin,
-    source: Option<Rc<str>>,
-    pub outdated: bool,
-    pub folder: PathBuf,
-    pub latest: Option<Version<'static>>,
+pub enum InstallAction {
+    Install(SearchItem),
+    Upgrade(SearchItem, PathBuf),
+    Unchanged(SearchItem, PathBuf),
+    NotFound(String),
 }
 
-impl InstallItem {
+pub struct OutdatedItem {
+    plugin: Plugin,
+    pub outdated: bool,
+    pub folder: PathBuf,
+    pub latest: Option<SearchItem>,
+}
+
+impl OutdatedItem {
     #[inline]
     pub fn source(&self) -> Option<&str> {
-        self.source.as_ref().map(|s| &s[..])
+        self.latest.as_ref().map(|s| s.source())
     }
     #[inline]
-    pub fn latest(&self) -> Option<&Version<'static>> {
+    pub fn latest(&self) -> Option<&SearchItem> {
         self.latest.as_ref()
     }
 }
 
-impl Deref for InstallItem {
+impl Deref for OutdatedItem {
     type Target = Plugin;
 
     fn deref(&self) -> &Self::Target {
@@ -43,7 +49,7 @@ impl Deref for InstallItem {
     }
 }
 
-impl AsRef<Plugin> for InstallItem {
+impl AsRef<Plugin> for OutdatedItem {
     fn as_ref(&self) -> &Plugin {
         &self.plugin
     }
@@ -53,36 +59,32 @@ pub struct Installer;
 
 impl Installer {
     /// List installed plugins
-    pub fn list(
-        context: &RunContext,
+    pub fn installed_plugins(
         install_dir: &Path,
-        pre: bool,
-        source: Option<&String>,
-    ) -> anyhow::Result<Vec<InstallItem>> {
+    ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Plugin, PathBuf)>>> {
         // Look for installed plugins (no-recurse)
         let globexpr = install_dir.join("*/metadata.txt");
-        glob::glob(&format!("{}", globexpr.display()))?
-            .map(|entry| {
+        Ok(
+            glob::glob(&format!("{}", globexpr.display()))?.map(|entry| {
                 let path = entry?;
                 log::debug!("Found plugin metadata in {}", path.display());
-                Self::update_from_metadata(context, &path, pre, source)
-            })
-            .collect() //::<anyhow::Result<Vec<SearchItem>>>()
+                Plugin::from_metadata(&mut fs::File::open(&path)?)
+                    .map(|p| (p, path.parent().unwrap().to_path_buf()))
+            }),
+        )
     }
 
-    /// Update from metadata
+    /// Return plugin install info
     ///
     /// Search for plugin remote sources, return an error
     /// if the plugin  is not found.
-    fn update_from_metadata(
+    pub fn check_outdated_plugin(
         context: &RunContext,
-        path: &Path,
+        plugin: Plugin,
+        folder: PathBuf,
         pre: bool,
         source: Option<&String>,
-    ) -> anyhow::Result<InstallItem> {
-        // Read plugin info from metadata
-        let plugin = Plugin::from_metadata(&mut fs::File::open(path)?)?;
-        let folder = path.parent().unwrap().to_path_buf();
+    ) -> anyhow::Result<OutdatedItem> {
         Ok(
             if let Some(latest) = context
                 .search(
@@ -101,50 +103,48 @@ impl Installer {
                 .next()
             {
                 let outdated = latest.version > plugin.version;
-                InstallItem {
+                OutdatedItem {
                     plugin,
                     folder,
-                    source: Some(latest.source.clone()),
-                    latest: outdated.then_some(latest.plugin.version),
+                    latest: Some(latest),
                     outdated,
                 }
             } else {
-                InstallItem {
+                OutdatedItem {
                     plugin,
                     folder,
-                    outdated: false,
-                    source: None,
                     latest: None,
+                    outdated: false,
                 }
             },
         )
     }
 
-    // Download a plugin
-    async fn download_plugin(
+    /// Download a plugin
+    pub async fn download_plugin(
         context: &RunContext,
-        source: String,
+        source: &str,
         plugin: &Plugin,
-        dest: &Path,
-        progress: InstallProgress<'_>,
+        progress: &InstallProgress,
     ) -> anyhow::Result<PathBuf> {
         let mut tmpfile = tempfile::NamedTempFile::new_in(context.cache_dir().join(source))
             .context("Failed to create temporary file")?;
 
         let builder = context.client()?.get(&plugin.download_url);
 
+        log::debug!("Downloading plugin {}", plugin.download_url);
         let res = builder.send().await?;
 
         if let Some(size) = res.content_length() {
-            progress.set_length(size)?;
+            progress.set_length(&plugin.name, size)?;
         };
 
         let mut stream = match res.status() {
             StatusCode::OK => res.bytes_stream(),
             code => {
-                return Err(anyhow::anyhow!(format!(
+                return Err(anyhow::anyhow!(
                     "Failed to download plugin: http error {code}"
-                )));
+                ));
             }
         };
 
@@ -157,15 +157,11 @@ impl Installer {
             }
             file.flush()?;
         }
-        Self::install_archive(tmpfile.path(), dest, &progress)
+        Self::install_archive(tmpfile.path(), context.install_dir())
     }
 
     // Install from plugin archive
-    fn install_archive(
-        archive: &Path,
-        dest: &Path,
-        progress: &InstallProgress<'_>,
-    ) -> anyhow::Result<PathBuf> {
+    fn install_archive(archive: &Path, dest: &Path) -> anyhow::Result<PathBuf> {
         // Get the name of the root folder in archive
 
         let mut zip = zip::ZipArchive::new(fs::File::open(archive)?)?;
@@ -177,23 +173,99 @@ impl Installer {
 
         // Backup actual installation
         let installed = dest.join(root.file_name().unwrap());
-        let backup = installed.with_added_extension(".bak");
+        let backup = installed.with_added_extension("bak");
         if installed.exists() {
+            log::debug!("Creating backup of installed plugin {backup:?}");
             fs::rename(&installed, &backup)?;
         }
 
         // Extract the plugin
         // In case of failure, remove residual and restore backup
-        match zip.extract(dest).context("Failed to extract archive") {
-            Ok(()) => fs::remove_dir_all(backup),
-            Err(err) => {
-                // Restore backup dir
-                if installed.exists() {
-                    fs::remove_dir_all(&installed)?;
-                }
-                fs::rename(backup, &installed)
+        log::debug!("Extracting archive {archive:?}");
+        if let Err(err) = zip.extract(dest).context("Failed to extract archive") {
+            // Restore backup dir
+            if installed.exists() {
+                fs::remove_dir_all(&installed)?;
             }
-        }?;
+            fs::rename(backup, &installed)?;
+            return Err(anyhow::anyhow!(err));
+        }
+
+        // Remove backup
+        if backup.exists() {
+            log::debug!("Removing backup {backup:?}");
+            if let Err(err) = fs::remove_dir_all(&backup) {
+                log::error!("Cannot remove director {}: {err}", backup.display());
+            }
+        }
         Ok(installed)
+    }
+
+    /// Determines install action from
+    /// requirements list
+    pub fn install_actions(
+        context: &RunContext,
+        requirements: Vec<String>,
+        pre: bool,
+        deprecated: bool,
+        source: Option<&String>,
+    ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<InstallAction>>> {
+        use InstallAction::*;
+
+        Ok(requirements.into_iter().map(move |s| {
+            let (name, request) = crate::version::parse_requirement(&s)?;
+            Ok(
+                if let Some(candidate) = context
+                    .find(name, &request, pre, deprecated, source)?
+                    .into_iter()
+                    .next()
+                {
+                    Install(candidate)
+                } else {
+                    NotFound(s.to_string())
+                },
+            )
+        }))
+    }
+
+    /// Determine upgrade actions from
+    /// requirements list
+    pub fn upgrade_actions(
+        context: &RunContext,
+        requirements: Vec<String>,
+        pre: bool,
+        deprecated: bool,
+        source: Option<&String>,
+        upgrade: bool,
+    ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<InstallAction>>> {
+        use InstallAction::*;
+
+        let mut installed: HashMap<String, (Version, PathBuf)> =
+            Self::installed_plugins(context.install_dir())?
+                .map(|v| v.map(|(plugin, path)| (plugin.name, (plugin.version, path))))
+                .collect::<anyhow::Result<_>>()?;
+
+        Ok(requirements.into_iter().map(move |s| {
+            let (name, request) = crate::version::parse_requirement(&s)?;
+            Ok(
+                if let Some(candidate) = context
+                    .find(name, &request, pre, deprecated, source)?
+                    .into_iter()
+                    .next()
+                {
+                    if let Some((installed_version, path)) = installed.remove(&candidate.name) {
+                        if upgrade && installed_version < candidate.version {
+                            Upgrade(candidate, path)
+                        } else {
+                            Unchanged(candidate, path)
+                        }
+                    } else {
+                        Install(candidate)
+                    }
+                } else {
+                    NotFound(s.to_string())
+                },
+            )
+        }))
     }
 }

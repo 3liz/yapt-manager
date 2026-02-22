@@ -13,44 +13,57 @@ use indicatif::{MultiProgress, ProgressBar};
 
 use crate::catalog::{Catalog, CatalogImpl};
 use crate::config::{Config, Source};
-use crate::echo::{RefreshStyle, SearchProgress};
+use crate::echo::{InstallProgress, RefreshStyle, SearchProgress};
+use crate::install::Installer;
 use crate::plugins::Plugin;
 use crate::statics::EnvVars;
 use crate::version::{Match, SemVer};
 
 pub use crate::catalog::Select;
+pub use crate::install::{InstallAction, OutdatedItem};
 
 const USER_AGENT: &str = "Yapt manager";
 
-pub struct RunContext {
-    cache_dir: PathBuf,
-    config: RefCell<Config>,
-    client: OnceCell<Result<reqwest::Client, reqwest::Error>>,
-    qgis_version: SemVer,
+pub struct ContextBuilder {
+    pub conf_dir: Option<PathBuf>,
+    pub cache_dir: Option<PathBuf>,
+    pub install_dir: Option<PathBuf>,
+    pub no_sync: bool,
 }
 
-impl RunContext {
-    pub fn install_dir(install_dir: Option<PathBuf>) -> PathBuf {
-        install_dir.unwrap_or_else(|| Path::new("./").to_path_buf())
-    }
-
-    pub fn new(conf_dir: Option<PathBuf>, cache_dir: Option<PathBuf>) -> anyhow::Result<Self> {
-        let conf_dir = conf_dir.unwrap_or_else(|| {
+impl ContextBuilder {
+    pub fn build(self) -> anyhow::Result<RunContext> {
+        let conf_dir = self.conf_dir.unwrap_or_else(|| {
             let mut p = std::env::current_dir().unwrap();
             p.push(".yapt");
             p
         });
-        let cache_dir = cache_dir.unwrap_or(conf_dir.join("cache"));
+        let install_dir = self
+            .install_dir
+            .unwrap_or_else(|| Path::new("./").to_path_buf());
+        let cache_dir = self.cache_dir.unwrap_or(conf_dir.join("cache"));
         let config = RefCell::new(Config::load_from(&conf_dir)?);
-
-        Ok(Self {
+        Ok(RunContext {
             cache_dir,
+            install_dir,
             config,
             qgis_version: SemVer::None,
             client: OnceCell::new(),
+            no_sync: self.no_sync,
         })
     }
+}
 
+pub struct RunContext {
+    cache_dir: PathBuf,
+    install_dir: PathBuf,
+    config: RefCell<Config>,
+    client: OnceCell<Result<reqwest::Client, reqwest::Error>>,
+    qgis_version: SemVer,
+    no_sync: bool,
+}
+
+impl RunContext {
     /// get configuration
     pub fn config(&self) -> Ref<'_, Config> {
         self.config.borrow()
@@ -64,6 +77,11 @@ impl RunContext {
     #[inline]
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
+    }
+
+    #[inline]
+    pub fn install_dir(&self) -> &Path {
+        &self.install_dir
     }
 
     /// Return an http client
@@ -84,7 +102,7 @@ impl RunContext {
                     .build()
             })
             .as_ref()
-            .map_err(|err| anyhow::anyhow!(format!("{err}")))
+            .map_err(|err| anyhow::anyhow!("{err}"))
             .cloned()
     }
 
@@ -100,7 +118,7 @@ impl RunContext {
                 std::fs::create_dir(&path)
                     .with_context(|| format!("Failed to create cache dir {path:?}"))?;
             } else {
-                return Err(anyhow::anyhow!(format!("Source no configured: {name}")));
+                return Err(anyhow::anyhow!("Source no configured: {name}"));
             }
         }
 
@@ -205,6 +223,55 @@ impl RunContext {
         })
     }
 
+    /// List installed plugins
+    pub fn list(&self, pre: bool, source: Option<&String>) -> anyhow::Result<Vec<OutdatedItem>> {
+        Installer::installed_plugins(&self.install_dir)?
+            .map(|result| {
+                result.and_then(|(plugin, folder)| {
+                    Installer::check_outdated_plugin(self, plugin, folder, pre, source)
+                })
+            })
+            .collect()
+    }
+
+    pub fn install_candidates(
+        &self,
+        requirements: Vec<String>,
+        pre: bool,
+        deprecated: bool,
+        source: Option<&String>,
+        upgrade: bool,
+        reinstall: bool,
+    ) -> anyhow::Result<Vec<InstallAction>> {
+        if reinstall {
+            Installer::install_actions(self, requirements, pre, deprecated, source)?.collect()
+        } else {
+            Installer::upgrade_actions(self, requirements, pre, deprecated, source, upgrade)?
+                .collect()
+        }
+    }
+
+    pub fn install_plugins(&self, plugins: impl Iterator<Item = SearchItem>) -> Vec<InstallResult> {
+        let rt = Self::create_runtime();
+
+        let m = MultiProgress::new();
+        rt.block_on(join_all(plugins.map(|item| {
+            let bar = m.add(ProgressBar::no_length());
+            async move {
+                let progress = InstallProgress::new(&item.name, bar).unwrap();
+                let result =
+                    match Installer::download_plugin(self, item.source(), item.as_ref(), &progress)
+                        .await
+                    {
+                        Ok(path) => InstallResult::Ok(item, path),
+                        Err(err) => InstallResult::Err(item, err),
+                    };
+                progress.finish();
+                result
+            }
+        })))
+    }
+
     /// Check source for update
     pub fn check_sources(&self, source: Option<&String>) -> anyhow::Result<()> {
         let rt = Self::create_runtime();
@@ -241,8 +308,8 @@ impl RunContext {
     }
 
     /// Helper for syncing sources
-    pub fn sync(&mut self, no_sync: bool, source: Option<&String>) -> anyhow::Result<&mut Self> {
-        if !no_sync {
+    pub fn sync(&mut self, source: Option<&String>) -> anyhow::Result<&mut Self> {
+        if !self.no_sync {
             self.refresh_sources(false, source)?;
         }
         Ok(self)
@@ -376,4 +443,9 @@ impl AsRef<Plugin> for SearchItem {
     fn as_ref(&self) -> &Plugin {
         &self.plugin
     }
+}
+
+pub enum InstallResult {
+    Ok(SearchItem, PathBuf),
+    Err(SearchItem, anyhow::Error),
 }
