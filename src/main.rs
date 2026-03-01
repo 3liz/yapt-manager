@@ -351,22 +351,20 @@ fn main() -> anyhow::Result<()> {
         //
         Remove(RemoveArgs { names }) => {
             let mut count = 0;
-            context.remove(names)?
-                .for_each(|res| {
-                    count += 1;
-                    match res {
-                        Ok(plugin) => {
-                            println!(
-                                "{OK}\t{CHECK} {:<25} {:<12}\tRemoved{OK:#}",
-                                plugin.name,
-                                plugin.version,
-                            );
-                        }
-                        Err(err) => {
-                            println!("{CROSS}{ALERT}\tError {err} {ALERT:#}");
-                        }
+            context.remove(names)?.for_each(|res| {
+                count += 1;
+                match res {
+                    Ok(plugin) => {
+                        println!(
+                            "{OK}\t{CHECK} {:<25} {:<12}\tRemoved{OK:#}",
+                            plugin.name, plugin.version,
+                        );
                     }
-                });
+                    Err(err) => {
+                        println!("{CROSS}{ALERT}\tError {err} {ALERT:#}");
+                    }
+                }
+            });
             if count == 0 {
                 eprintln!("{INFO}No plugins found{INFO:#}")
             }
@@ -387,7 +385,7 @@ fn cmd_source(
         Add { name, url, rest } => {
             context
                 .config_mut()
-                .add_source(name.clone(), Source::new(url, rest))?
+                .add_source(Source::new(name.clone(), url, rest))?
                 .save()?;
             println!("{OK}Source '{name}' added{OK:#}");
         }
@@ -400,8 +398,8 @@ fn cmd_source(
             println!("{OK}'{old}':  Renamed to {new}{OK:#}");
         }
         List => {
-            for (name, source) in context.config().iter_sources() {
-                println!("{name:20}{}", source.url);
+            for source in context.config().iter_sources() {
+                println!("{:20}{}", source.name, source.url);
             }
         }
         Update { source, refresh } => {

@@ -107,12 +107,8 @@ impl RunContext {
             .cloned()
     }
 
-    pub fn catalog(
-        &self,
-        name: &str,
-        source: &Source,
-        create: bool,
-    ) -> anyhow::Result<CatalogImpl> {
+    pub fn catalog(&self, source: &Source, create: bool) -> anyhow::Result<CatalogImpl> {
+        let name = &source.name;
         let path = self.cache_dir().join(name);
         if !path.exists() {
             if create {
@@ -160,28 +156,28 @@ impl RunContext {
 
         let mut plugins = if let Some(name) = source {
             let source = conf.try_get_source(name)?;
-            let catalog = self.catalog(name, source, false)?;
+            let catalog = self.catalog(source, false)?;
             progress.set_message(name.clone());
             into_search(
                 name,
                 rt.block_on(catalog.search_with_options(self, &query, all))?,
             )
         } else if conf.num_sources() == 1 {
-            let (name, source) = conf.iter_sources().next().unwrap();
-            let catalog = self.catalog(name, source, false)?;
-            progress.set_message(name.clone());
+            let source = conf.iter_sources().next().unwrap();
+            let catalog = self.catalog(source, false)?;
+            progress.set_message(source.name.clone());
             into_search(
-                name,
+                &source.name,
                 rt.block_on(catalog.search_with_options(self, &query, all))?,
             )
         } else {
-            rt.block_on(join_all(conf.iter_sources().map(|(name, source)| async {
-                let catalog = self.catalog(name, source, false)?;
-                progress.set_message(name.clone());
+            rt.block_on(join_all(conf.iter_sources().map(|source| async {
+                let catalog = self.catalog(source, false)?;
+                progress.set_message(source.name.clone());
                 catalog
                     .search_with_options(self, &query, all)
                     .await
-                    .map(|v| into_search(name, v))
+                    .map(|v| into_search(&source.name, v))
             })))
             .into_iter()
             .collect::<anyhow::Result<Vec<Vec<SearchItem>>>>()?
@@ -304,27 +300,26 @@ impl RunContext {
         let m = MultiProgress::new();
 
         // Create catalog
-        let create_catalog =
-            |name: &str, source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
-                let catalog = self.catalog(name, source, true)?;
-                let progress = m.add(ProgressBar::no_length());
-                progress.set_style(RefreshStyle::progress(name)?);
-                Ok((catalog, progress))
-            };
+        let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
+            let catalog = self.catalog(source, true)?;
+            let progress = m.add(ProgressBar::no_length());
+            progress.set_style(RefreshStyle::progress(&source.name)?);
+            Ok((catalog, progress))
+        };
 
         let conf = self.config();
 
         if let Some(name) = source {
             let source = conf.try_get_source(name)?;
-            let (mut catalog, progress) = create_catalog(name, source)?;
+            let (mut catalog, progress) = create_catalog(source)?;
             rt.block_on(catalog.check_for_update(self, progress))
         } else if conf.num_sources() == 1 {
-            let (name, source) = conf.iter_sources().next().unwrap();
-            let (mut catalog, progress) = create_catalog(name, source)?;
+            let source = conf.iter_sources().next().unwrap();
+            let (mut catalog, progress) = create_catalog(source)?;
             rt.block_on(catalog.check_for_update(self, progress))
         } else {
-            rt.block_on(join_all(conf.iter_sources().map(|(name, source)| async {
-                let (mut catalog, progress) = create_catalog(name, source)?;
+            rt.block_on(join_all(conf.iter_sources().map(|source| async {
+                let (mut catalog, progress) = create_catalog(source)?;
                 catalog.check_for_update(self, progress).await
             })))
             .into_iter()
@@ -347,23 +342,22 @@ impl RunContext {
         let m = MultiProgress::new();
 
         // Create catalog
-        let create_catalog =
-            |name: &str, source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
-                let catalog = self.catalog(name, source, true)?;
-                let progress = m.add(ProgressBar::no_length());
-                progress.set_style(RefreshStyle::progress(name)?);
-                Ok((catalog, progress))
-            };
+        let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
+            let catalog = self.catalog(source, true)?;
+            let progress = m.add(ProgressBar::no_length());
+            progress.set_style(RefreshStyle::progress(&source.name)?);
+            Ok((catalog, progress))
+        };
 
         let conf = self.config();
 
         if let Some(name) = source {
             let source = conf.try_get_source(name)?;
-            let (mut catalog, progress) = create_catalog(name, source)?;
+            let (mut catalog, progress) = create_catalog(source)?;
             rt.block_on(catalog.refresh(self, progress, force))
         } else {
-            rt.block_on(join_all(conf.iter_sources().map(|(name, source)| async {
-                let (mut catalog, progress) = create_catalog(name, source)?;
+            rt.block_on(join_all(conf.iter_sources().map(|source| async {
+                let (mut catalog, progress) = create_catalog(source)?;
                 catalog.refresh(self, progress, force).await
             })))
             .into_iter()

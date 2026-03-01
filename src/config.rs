@@ -2,7 +2,6 @@
 //! YAPT manager configuration
 //!
 use std::borrow::Cow;
-use std::collections::{HashMap, hash_map};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,6 +10,7 @@ use crate::version::SemVer;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Source {
+    pub name: String,
     pub url: String,
     #[serde(default)]
     pub rest: bool,
@@ -19,13 +19,19 @@ pub struct Source {
 }
 
 impl Source {
-    pub fn new(url: String, rest: bool) -> Self {
+    pub fn new(name: String, url: String, rest: bool) -> Self {
         let template = url.contains("{VERSION}");
         Self {
+            name,
             url,
             rest,
             template,
         }
+    }
+
+    #[inline]
+    pub fn is(&self, name: &str) -> bool {
+        self.name.eq_ignore_ascii_case(name)
     }
 
     pub fn try_url(&self, qgis_version: &SemVer) -> Result<Cow<'_, str>, Error> {
@@ -47,8 +53,7 @@ impl Source {
 #[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Config {
-    // XXX Change to ordered Vec
-    sources: HashMap<String, Source>,
+    sources: Vec<Source>,
 
     #[serde(skip)]
     path: PathBuf,
@@ -57,18 +62,17 @@ pub struct Config {
 impl Config {
     const CONF_FILE: &'static str = "config.json";
 
-    pub fn add_source(&mut self, name: String, source: Source) -> Result<&mut Self, Error> {
-        match self.sources.entry(name) {
-            hash_map::Entry::Occupied(e) => Err(Error::SourceExists(e.key().clone())),
-            hash_map::Entry::Vacant(e) => {
-                e.insert(source);
-                Ok(self)
-            }
+    pub fn add_source(&mut self, source: Source) -> Result<&mut Self, Error> {
+        if self.sources.iter().any(|s| s.is(&source.name)) {
+            Err(Error::SourceExists(source.name))
+        } else {
+            self.sources.push(source);
+            Ok(self)
         }
     }
 
     pub fn remove_source(&mut self, name: &str) -> Result<&mut Self, Error> {
-        if self.sources.remove(name).is_none() {
+        if self.sources.extract_if(.., |s| s.is(name)).count() == 0 {
             Err(Error::SourceNotExists(name.to_string()))
         } else {
             Ok(self)
@@ -76,16 +80,13 @@ impl Config {
     }
 
     pub fn rename_source(&mut self, old: &str, new: &str) -> Result<&mut Self, Error> {
-        if self.sources.contains_key(new) {
+        if self.get_source(new).is_some() {
             Err(Error::SourceExists(new.to_string()))
-        } else {
-            let source = self
-                .sources
-                .remove(old)
-                .ok_or_else(|| Error::SourceNotExists(old.to_string()))?;
-
-            self.sources.insert(new.to_string(), source);
+        } else if let Some(source) = self.sources.iter_mut().find(|s| s.is(old)) {
+            source.name = new.to_string();
             Ok(self)
+        } else {
+            Err(Error::SourceNotExists(old.to_string()))
         }
     }
 
@@ -95,7 +96,7 @@ impl Config {
     }
 
     #[inline]
-    pub fn iter_sources(&self) -> impl Iterator<Item = (&String, &Source)> {
+    pub fn iter_sources(&self) -> impl Iterator<Item = &Source> {
         self.sources.iter()
     }
 
@@ -124,9 +125,14 @@ impl Config {
         Ok(())
     }
 
+    #[inline]
+    pub fn get_source(&self, name: &str) -> Option<&Source> {
+        self.sources.iter().find(|s| s.is(name))
+    }
+
+    #[inline]
     pub fn try_get_source(&self, name: &str) -> Result<&Source, Error> {
-        self.sources
-            .get(name)
+        self.get_source(name)
             .ok_or_else(|| Error::SourceNotExists(name.to_string()))
     }
 }
