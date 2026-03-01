@@ -17,7 +17,7 @@ mod plugins;
 mod statics;
 mod version;
 
-use cli::{Cli, Commands, FindArgs, InstallArgs, ListArgs, SearchArgs, UpgradeArgs};
+use cli::{Cli, Commands, FindArgs, InstallArgs, ListArgs, RemoveArgs, SearchArgs, UpgradeArgs};
 use display::{HEAD, column, print_table};
 use echo::{
     ALERT, INFO, NOTE, OK, TABINF,
@@ -344,6 +344,31 @@ fn main() -> anyhow::Result<()> {
                     ),
                 );
                 eprintln!("{NOTE}(\u{002a}) Minimum QGIS versions supported{NOTE:#}");
+            }
+        }
+        //
+        // Remove command
+        //
+        Remove(RemoveArgs { names }) => {
+            let mut count = 0;
+            context.remove(names)?
+                .for_each(|res| {
+                    count += 1;
+                    match res {
+                        Ok(plugin) => {
+                            println!(
+                                "{OK}\t{CHECK} {:<25} {:<12}\tRemoved{OK:#}",
+                                plugin.name,
+                                plugin.version,
+                            );
+                        }
+                        Err(err) => {
+                            println!("{CROSS}{ALERT}\tError {err} {ALERT:#}");
+                        }
+                    }
+                });
+            if count == 0 {
+                eprintln!("{INFO}No plugins found{INFO:#}")
             }
         }
     }

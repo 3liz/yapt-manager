@@ -2,6 +2,7 @@
 //! Run context
 //!
 use std::cell::{OnceCell, Ref, RefCell, RefMut};
+use std::fs;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -221,6 +222,30 @@ impl RunContext {
                 .filter(|p| request.matches(&p.version))
                 .collect()
         })
+    }
+
+    /// Remove installed plugins
+    pub fn remove(
+        &self,
+        names: Vec<String>,
+    ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<Plugin>>> {
+        Ok(
+            Installer::installed_plugins(&self.install_dir)?.filter_map(move |result| {
+                if let Ok((plugin, folder)) = result {
+                    names
+                        .iter()
+                        .any(|s| s.eq_ignore_ascii_case(&plugin.name))
+                        .then(|| {
+                            fs::remove_dir_all(&folder)
+                                .with_context(|| format!("{} {}: ", plugin.name, folder.display()))
+                                .map(|()| plugin)
+                        })
+                } else {
+                    log::error!("{}", result.unwrap_err());
+                    None
+                }
+            }),
+        )
     }
 
     /// List installed plugins

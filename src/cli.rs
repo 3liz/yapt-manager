@@ -91,6 +91,8 @@ pub enum Commands {
     Upgrade(UpgradeArgs),
     /// Search for plugins
     Search(SearchArgs),
+    /// Remove installed plugins
+    Remove(RemoveArgs),
 }
 
 #[derive(Subcommand)]
@@ -226,6 +228,13 @@ pub struct UpgradeArgs {
     /// Only show what would be installed
     #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct RemoveArgs {
+    /// Plugins to remove
+    #[arg(name = "NAME", required = true)]
+    pub names: Vec<String>,
 }
 
 #[derive(Args, Debug)]
