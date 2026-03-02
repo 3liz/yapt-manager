@@ -12,8 +12,8 @@ use futures::stream::StreamExt;
 use reqwest::StatusCode;
 
 use crate::context::{RunContext, SearchItem, Select};
-use crate::echo::InstallProgress;
 use crate::plugins::Plugin;
+use crate::printer::InstallProgress;
 use crate::version::Version;
 
 pub enum InstallAction {
@@ -67,7 +67,7 @@ impl Installer {
         Ok(
             glob::glob(&format!("{}", globexpr.display()))?.map(|entry| {
                 let path = entry?;
-                log::debug!("Found plugin metadata in {}", path.display());
+                log::debug!("Found plugin metadata: {}", path.display());
                 Plugin::from_metadata(&mut fs::File::open(&path)?)
                     .map(|p| (p, path.parent().unwrap().to_path_buf()))
             }),
@@ -201,7 +201,7 @@ impl Installer {
         Ok(installed)
     }
 
-    /// Determines install action from
+    /// Determine install actions from
     /// requirements list
     pub fn install_actions(
         context: &RunContext,
@@ -209,34 +209,8 @@ impl Installer {
         pre: bool,
         deprecated: bool,
         source: Option<&String>,
-    ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<InstallAction>>> {
-        use InstallAction::*;
-
-        Ok(requirements.into_iter().map(move |s| {
-            let (name, request) = crate::version::parse_requirement(&s)?;
-            Ok(
-                if let Some(candidate) = context
-                    .find(name, &request, pre, deprecated, source)?
-                    .into_iter()
-                    .next()
-                {
-                    Install(candidate)
-                } else {
-                    NotFound(s.to_string())
-                },
-            )
-        }))
-    }
-
-    /// Determine upgrade actions from
-    /// requirements list
-    pub fn upgrade_actions(
-        context: &RunContext,
-        requirements: Vec<String>,
-        pre: bool,
-        deprecated: bool,
-        source: Option<&String>,
         upgrade: bool,
+        reinstall: bool,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<InstallAction>>> {
         use InstallAction::*;
 
@@ -254,7 +228,13 @@ impl Installer {
                     .next()
                 {
                     if let Some((installed_version, path)) = installed.remove(&candidate.name) {
-                        if upgrade && installed_version < candidate.version {
+                        if path.is_symlink() {
+                            // Skip symlink
+                            log::warn!("Skipping {path:?} because it is a symlink");
+                            Unchanged(candidate, path)
+                        } else if reinstall {
+                            Install(candidate)
+                        } else if upgrade && installed_version < candidate.version {
                             Upgrade(candidate, path)
                         } else {
                             Unchanged(candidate, path)

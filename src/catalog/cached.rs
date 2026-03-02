@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use crate::context::RunContext;
-use crate::echo::CacheProgress;
 use crate::errors::Error;
 use crate::plugins::Plugin;
+use crate::printer::CacheProgress;
 
 use anyhow::Context;
 

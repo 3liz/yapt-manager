@@ -24,7 +24,7 @@ pub mod glyph {
 
 // Progress bar styles
 use glyph::{CHECK, CROSS};
-use indicatif::{ProgressBar, ProgressStyle, style::TemplateError};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle, style::TemplateError};
 
 /// Source cache progress Bar
 #[derive(Clone)]
@@ -85,8 +85,8 @@ pub struct SearchProgress;
 /// Search progress Bar
 impl SearchProgress {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> Result<ProgressBar, TemplateError> {
-        let bar = ProgressBar::no_length();
+    pub fn new(target: ProgressDrawTarget) -> Result<ProgressBar, TemplateError> {
+        let bar = ProgressBar::with_draw_target(None, target);
         bar.set_style(ProgressStyle::with_template("Searching  {msg}...")?);
         Ok(bar)
     }

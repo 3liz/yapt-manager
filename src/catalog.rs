@@ -7,8 +7,8 @@ use std::path::Path;
 use strsim::jaro_winkler;
 
 use crate::context::RunContext;
-use crate::echo::CacheProgress;
 use crate::plugins::Plugin;
+use crate::printer::CacheProgress;
 use crate::version::SemVer;
 
 pub(crate) mod cached;

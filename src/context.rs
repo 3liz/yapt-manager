@@ -14,9 +14,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget};
 
 use crate::catalog::{Catalog, CatalogImpl};
 use crate::config::{Config, Source};
-use crate::echo::{CacheProgress, InstallProgress, SearchProgress};
 use crate::install::Installer;
 use crate::plugins::Plugin;
+use crate::printer::{CacheProgress, InstallProgress, SearchProgress};
 use crate::statics::EnvVars;
 use crate::version::{Match, SemVer};
 
@@ -141,7 +141,8 @@ impl RunContext {
     ) -> anyhow::Result<Vec<SearchItem>> {
         let rt = Self::create_runtime();
 
-        let progress = SearchProgress::new()?;
+        let progress = SearchProgress::new(self.printer_target())?;
+
         let conf = self.config();
 
         // Search only for qgis_version if set
@@ -267,18 +268,23 @@ impl RunContext {
         upgrade: bool,
         reinstall: bool,
     ) -> anyhow::Result<Vec<InstallAction>> {
-        if reinstall {
-            Installer::install_actions(self, requirements, pre, deprecated, source)?.collect()
-        } else {
-            Installer::upgrade_actions(self, requirements, pre, deprecated, source, upgrade)?
-                .collect()
-        }
+        Installer::install_actions(
+            self,
+            requirements,
+            pre,
+            deprecated,
+            source,
+            upgrade,
+            reinstall,
+        )?
+        .collect()
     }
 
     pub fn install_plugins(&self, plugins: impl Iterator<Item = SearchItem>) -> Vec<InstallResult> {
         let rt = Self::create_runtime();
 
-        let m = self.progress_printer();
+        let m = MultiProgress::with_draw_target(self.printer_target());
+
         rt.block_on(join_all(plugins.map(|item| {
             let bar = m.add(ProgressBar::no_length());
             async move {
@@ -300,7 +306,7 @@ impl RunContext {
     pub fn check_sources(&self, source: Option<&String>) -> anyhow::Result<()> {
         let rt = Self::create_runtime();
 
-        let m = self.progress_printer();
+        let m = MultiProgress::with_draw_target(self.printer_target());
 
         // Create catalog
         let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, CacheProgress)> {
@@ -341,7 +347,7 @@ impl RunContext {
     pub fn refresh_sources(&self, force: bool, source: Option<&String>) -> anyhow::Result<()> {
         let rt = Self::create_runtime();
 
-        let m = self.progress_printer();
+        let m = MultiProgress::with_draw_target(self.printer_target());
 
         // Create catalog
         let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, CacheProgress)> {
@@ -420,12 +426,12 @@ impl RunContext {
             .expect("Failed to create tokio runtime")
     }
 
-    fn progress_printer(&self) -> MultiProgress {
-        MultiProgress::with_draw_target(if self.no_progress {
+    fn printer_target(&self) -> ProgressDrawTarget {
+        if self.no_progress {
             ProgressDrawTarget::hidden()
         } else {
             ProgressDrawTarget::stderr()
-        })
+        }
     }
 }
 

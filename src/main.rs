@@ -8,21 +8,21 @@ mod catalog;
 mod cli;
 mod config;
 mod context;
-mod display;
-mod echo;
 mod errors;
 mod install;
 mod logger;
 mod plugins;
+mod printer;
 mod statics;
+mod table;
 mod version;
 
 use cli::{Cli, Commands, FindArgs, InstallArgs, ListArgs, RemoveArgs, SearchArgs, UpgradeArgs};
-use display::{HEAD, column, print_table};
-use echo::{
+use printer::{
     ALERT, INFO, NOTE, OK, TABINF,
     glyph::{ARROW, CHECK, CROSS, WARN},
 };
+use table::{HEAD, column, print_table};
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
@@ -36,7 +36,9 @@ fn main() -> anyhow::Result<()> {
         cache_dir: args.cache_dir,
         install_dir: args.install_dir,
         no_sync: args.no_sync,
-        no_progress: args.no_progress,
+        // If verbose is set to debug then hide progress
+        // otherwise it gets interleaved with debug message
+        no_progress: args.no_progress || args.verbose > 1,
     }
     .build()?;
 
@@ -226,7 +228,12 @@ fn main() -> anyhow::Result<()> {
                 println!("{INFO}No plugins found...{INFO:#}");
             } else if dry_run {
                 items.iter().for_each(|item| {
-                    if item.latest().is_none() {
+                    if item.folder.is_symlink() {
+                        println!(
+                            "{INFO}\t{WARN} {:<25} {}\tSkipped because it is a symlink{INFO:#}",
+                            item.name, item.version,
+                        );
+                    } else if item.latest().is_none() {
                         println!(
                             "{INFO}\t{WARN} {:<25} {}\tSkipped (no source){INFO:#}",
                             item.name, item.version,
@@ -257,7 +264,13 @@ fn main() -> anyhow::Result<()> {
                 use context::InstallResult;
                 context
                     .install_plugins(items.into_iter().filter_map(|item| {
-                        if item.latest().is_none() {
+                        if item.folder.is_symlink() {
+                            println!(
+                                "{INFO}\t{WARN} {:<25} {}\tSkipped because it is a symlink{INFO:#}",
+                                item.name, item.version,
+                            );
+                            None
+                        } else if item.latest().is_none() {
                             println!(
                                 "{INFO}\t{WARN} {:<25} {}\tSkipped (no source){INFO:#}",
                                 item.name, item.version,
