@@ -11,12 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use crate::context::RunContext;
-use crate::echo::RefreshStyle;
+use crate::echo::CacheProgress;
 use crate::errors::Error;
 use crate::plugins::Plugin;
 
 use anyhow::Context;
-use indicatif::ProgressBar;
 
 use bytes::Bytes;
 use futures::stream::{Stream, StreamExt};
@@ -129,7 +128,7 @@ impl Catalog for Cached {
     async fn refresh(
         &mut self,
         context: &RunContext,
-        bar: ProgressBar,
+        bar: CacheProgress,
         force: bool,
     ) -> anyhow::Result<()> {
         bar.set_message("Checking update");
@@ -141,14 +140,14 @@ impl Catalog for Cached {
                 if let Some(stream) = stream {
                     bar.set_message("Updating...");
                     self.download(stream, &bar).await.inspect_err(|_| {
-                        bar.finish_with_message(RefreshStyle::error_msg());
+                        bar.finish_with_error();
                     })?;
                 }
-                bar.finish_with_message(RefreshStyle::ok_msg());
+                bar.finish_with_success();
                 Ok(())
             }
             Err(err) => {
-                bar.finish_with_message(RefreshStyle::error_msg());
+                bar.finish_with_error();
                 Err(err)
             }
         }
@@ -157,7 +156,7 @@ impl Catalog for Cached {
     async fn check_for_update(
         &mut self,
         context: &RunContext,
-        bar: ProgressBar,
+        bar: CacheProgress,
     ) -> anyhow::Result<()> {
         bar.set_message("Checking update");
 
@@ -174,22 +173,20 @@ impl Catalog for Cached {
                 .await?;
 
             match res.status() {
-                StatusCode::NOT_MODIFIED => bar.finish_with_message(RefreshStyle::ok_msg()),
-                StatusCode::OK => {
-                    bar.finish_with_message(RefreshStyle::warn_msg("Update required"))
-                }
+                StatusCode::NOT_MODIFIED => bar.finish_with_success(),
+                StatusCode::OK => bar.finish_with_warning("Update required"),
                 code => return Err(anyhow::anyhow!(Error::SourceRequestFailure(code))),
             }
         } else {
             match self.fetch(&client).await? {
                 UpdateStatus::UpToDate => {
-                    bar.finish_with_message(RefreshStyle::ok_msg());
+                    bar.finish_with_success();
                 }
                 UpdateStatus::NeedUpdate(_) => {
-                    bar.finish_with_message(RefreshStyle::warn_msg("Update required"));
+                    bar.finish_with_warning("Update required");
                 }
                 UpdateStatus::ManualUpdate => {
-                    bar.finish_with_message(RefreshStyle::warn_msg("Require manual update"));
+                    bar.finish_with_warning("Require manual update");
                 }
             }
         }
@@ -340,7 +337,7 @@ impl Cached {
     async fn download<S: ByteStream>(
         &mut self,
         mut stream: S,
-        progress: &ProgressBar,
+        progress: &CacheProgress,
     ) -> anyhow::Result<()> {
         let mut tmpfile = tempfile::NamedTempFile::new_in(self.cache_dir())
             .context("Failed to create temporary file")?;

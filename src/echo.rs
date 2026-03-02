@@ -20,32 +20,63 @@ pub mod glyph {
     pub const CROSS: &str = "\u{2715}";
     pub const WARN: &str = "\u{26a0}";
     pub const ARROW: &str = "\u{2192}";
-    //pub const ASTER: &str = "\u{002a}";
 }
 
 // Progress bar styles
 use glyph::{CHECK, CROSS};
 use indicatif::{ProgressBar, ProgressStyle, style::TemplateError};
 
-pub type StyleResult = Result<ProgressStyle, TemplateError>;
+/// Source cache progress Bar
+#[derive(Clone)]
+pub struct CacheProgress {
+    bar: ProgressBar,
+    name: String,
+}
 
-pub struct RefreshStyle {}
-
-impl RefreshStyle {
-    pub fn progress(name: &str) -> StyleResult {
-        ProgressStyle::with_template(&format!("{{spinner:.blue}} {name:.<25} {{msg:.blue}}"))
+impl CacheProgress {
+    pub fn new(name: &str, bar: ProgressBar) -> Result<Self, TemplateError> {
+        bar.set_style(ProgressStyle::with_template(&format!(
+            "{{spinner:.blue}} {name:.<25} {{msg:.blue}}"
+        ))?);
+        let name = if bar.is_hidden() {
+            name.to_string()
+        } else {
+            String::new()
+        };
+        Ok(Self { bar, name })
     }
 
-    pub fn error_msg() -> String {
-        format!("{ALERT}{CROSS} Error{ALERT:#}")
+    #[inline]
+    pub fn tick(&self) {
+        self.bar.tick();
     }
 
-    pub fn ok_msg() -> String {
-        format!("{OK}{CHECK} Up to date{OK:#}")
+    #[inline]
+    pub fn set_message(&self, msg: &'static str) {
+        self.bar.set_message(msg);
     }
 
-    pub fn warn_msg(msg: &str) -> String {
-        format!("{INFO}{msg}{INFO:#}")
+    #[inline]
+    pub fn finish_with_error(&self) {
+        self.finish_with_message(format!("{ALERT}{CROSS} Error{ALERT:#}"));
+    }
+
+    #[inline]
+    pub fn finish_with_success(&self) {
+        self.finish_with_message(format!("{OK}{CHECK} Up to date{OK:#}"));
+    }
+
+    #[inline]
+    pub fn finish_with_warning(&self, msg: &str) {
+        self.finish_with_message(format!("{INFO}{msg}{INFO:#}"));
+    }
+
+    fn finish_with_message(&self, msg: String) {
+        if self.bar.is_hidden() {
+            eprintln!("{:.<25} {msg}", self.name)
+        } else {
+            self.bar.finish_with_message(msg);
+        }
     }
 }
 

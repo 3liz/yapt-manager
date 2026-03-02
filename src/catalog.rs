@@ -4,10 +4,10 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use indicatif::ProgressBar;
 use strsim::jaro_winkler;
 
 use crate::context::RunContext;
+use crate::echo::CacheProgress;
 use crate::plugins::Plugin;
 use crate::version::SemVer;
 
@@ -125,7 +125,7 @@ impl Catalog for CatalogImpl {
     async fn refresh(
         &mut self,
         context: &RunContext,
-        bar: ProgressBar,
+        bar: CacheProgress,
         force: bool,
     ) -> anyhow::Result<()> {
         match self {
@@ -140,7 +140,7 @@ impl Catalog for CatalogImpl {
     async fn check_for_update(
         &mut self,
         context: &RunContext,
-        bar: ProgressBar,
+        bar: CacheProgress,
     ) -> anyhow::Result<()> {
         match self {
             Self::Cached(cat) => cat.check_for_update(context, bar).await,
@@ -179,7 +179,7 @@ pub trait Catalog {
     async fn refresh(
         &mut self,
         context: &RunContext,
-        bar: ProgressBar,
+        bar: CacheProgress,
         force: bool,
     ) -> anyhow::Result<()>;
 
@@ -187,6 +187,6 @@ pub trait Catalog {
     async fn check_for_update(
         &mut self,
         context: &RunContext,
-        bar: ProgressBar,
+        bar: CacheProgress,
     ) -> anyhow::Result<()>;
 }

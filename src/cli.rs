@@ -24,21 +24,21 @@ pub struct Cli {
         global = true,
         long, short = 'C',
         env = EnvVars::YAPT_CONF_DIR,
-        help_heading = "Config options",
+        help_heading = "Global options",
     )]
     pub config: Option<PathBuf>,
     /// The cache directory (default to config dir)
-    #[arg(global = true, long, help_heading = "Config options", env = EnvVars::YAPT_CACHE_DIR)]
+    #[arg(global = true, long, help_heading = "Global options", env = EnvVars::YAPT_CACHE_DIR)]
     pub cache_dir: Option<PathBuf>,
     /// Do no synchronize sources
-    #[arg(global = true, long, help_heading = "Config options", env = EnvVars::YAPT_NO_SYNC)]
+    #[arg(global = true, long, help_heading = "Global options", env = EnvVars::YAPT_NO_SYNC)]
     pub no_sync: bool,
     /// The QGIS version
     ///
     /// If the qgis version is not specified, the version
     /// will be determined from the local QGIS installation
     /// if available.
-    #[arg(global = true, long, help_heading = "Config options", env = EnvVars::QGIS_VERSION)]
+    #[arg(global = true, long, help_heading = "Global options", env = EnvVars::QGIS_VERSION)]
     pub qgis_version: Option<String>,
     /// Plugin installation directory
     ///
@@ -46,12 +46,15 @@ pub struct Cli {
     #[arg(
         global = true,
         long, short = 'd',
-        help_heading = "Install options",
+        help_heading = "Global options",
         env = EnvVars::QGIS_PLUGINPATH,
     )]
     pub install_dir: Option<PathBuf>,
 
-    // Global options
+    /// Hide all progress outputs
+    #[arg(global = true, long, help_heading = "Global options", env = EnvVars::YAPT_NO_PROGRESS)]
+    pub no_progress: bool,
+
     /// Increase log verbosity
     #[arg(
         global = true,

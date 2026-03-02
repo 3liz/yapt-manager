@@ -10,11 +10,11 @@ use std::rc::Rc;
 
 use anyhow::Context;
 use futures::future::join_all;
-use indicatif::{MultiProgress, ProgressBar};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget};
 
 use crate::catalog::{Catalog, CatalogImpl};
 use crate::config::{Config, Source};
-use crate::echo::{InstallProgress, RefreshStyle, SearchProgress};
+use crate::echo::{CacheProgress, InstallProgress, SearchProgress};
 use crate::install::Installer;
 use crate::plugins::Plugin;
 use crate::statics::EnvVars;
@@ -30,6 +30,7 @@ pub struct ContextBuilder {
     pub cache_dir: Option<PathBuf>,
     pub install_dir: Option<PathBuf>,
     pub no_sync: bool,
+    pub no_progress: bool,
 }
 
 impl ContextBuilder {
@@ -51,6 +52,7 @@ impl ContextBuilder {
             qgis_version: SemVer::None,
             client: OnceCell::new(),
             no_sync: self.no_sync,
+            no_progress: self.no_progress,
         })
     }
 }
@@ -62,6 +64,7 @@ pub struct RunContext {
     client: OnceCell<Result<reqwest::Client, reqwest::Error>>,
     qgis_version: SemVer,
     no_sync: bool,
+    no_progress: bool,
 }
 
 impl RunContext {
@@ -275,7 +278,7 @@ impl RunContext {
     pub fn install_plugins(&self, plugins: impl Iterator<Item = SearchItem>) -> Vec<InstallResult> {
         let rt = Self::create_runtime();
 
-        let m = MultiProgress::new();
+        let m = self.progress_printer();
         rt.block_on(join_all(plugins.map(|item| {
             let bar = m.add(ProgressBar::no_length());
             async move {
@@ -297,13 +300,12 @@ impl RunContext {
     pub fn check_sources(&self, source: Option<&String>) -> anyhow::Result<()> {
         let rt = Self::create_runtime();
 
-        let m = MultiProgress::new();
+        let m = self.progress_printer();
 
         // Create catalog
-        let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
+        let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, CacheProgress)> {
             let catalog = self.catalog(source, true)?;
-            let progress = m.add(ProgressBar::no_length());
-            progress.set_style(RefreshStyle::progress(&source.name)?);
+            let progress = CacheProgress::new(&source.name, m.add(ProgressBar::no_length()))?;
             Ok((catalog, progress))
         };
 
@@ -339,13 +341,12 @@ impl RunContext {
     pub fn refresh_sources(&self, force: bool, source: Option<&String>) -> anyhow::Result<()> {
         let rt = Self::create_runtime();
 
-        let m = MultiProgress::new();
+        let m = self.progress_printer();
 
         // Create catalog
-        let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, ProgressBar)> {
+        let create_catalog = |source: &Source| -> anyhow::Result<(CatalogImpl, CacheProgress)> {
             let catalog = self.catalog(source, true)?;
-            let progress = m.add(ProgressBar::no_length());
-            progress.set_style(RefreshStyle::progress(&source.name)?);
+            let progress = CacheProgress::new(&source.name, m.add(ProgressBar::no_length()))?;
             Ok((catalog, progress))
         };
 
@@ -417,6 +418,14 @@ impl RunContext {
             .enable_io()
             .build()
             .expect("Failed to create tokio runtime")
+    }
+
+    fn progress_printer(&self) -> MultiProgress {
+        MultiProgress::with_draw_target(if self.no_progress {
+            ProgressDrawTarget::hidden()
+        } else {
+            ProgressDrawTarget::stderr()
+        })
     }
 }
 

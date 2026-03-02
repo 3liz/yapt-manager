@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
         cache_dir: args.cache_dir,
         install_dir: args.install_dir,
         no_sync: args.no_sync,
+        no_progress: args.no_progress,
     }
     .build()?;
 

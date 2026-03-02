@@ -28,6 +28,9 @@ impl EnvVars {
     /// User agent
     pub const YAPT_USER_AGENT: &'static str = "YAPT_USER_AGENT";
 
+    /// Hide progress outputs
+    pub const YAPT_NO_PROGRESS: &'static str = "YAPT_NO_PROGRESS";
+
     /// Python executable
     pub const PYTHON_EXECUTABLE: &'static str = "PYTHON_EXECUTABLE";
 }
