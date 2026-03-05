@@ -131,6 +131,7 @@ pub enum SourceCommand {
     /// from the server headers.
     /// If the server does not provides these headers, then the source will not be
     /// be synced when issuing commands..
+    #[command(visible_alias = "sync")]
     Update {
         /// Fetch only the specified source
         #[arg()]
