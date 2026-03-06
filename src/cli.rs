@@ -31,6 +31,10 @@ pub struct Cli {
     #[arg(global = true, long, help_heading = "Global options", env = EnvVars::YAPT_CACHE_DIR)]
     pub cache_dir: Option<PathBuf>,
     /// Do no synchronize sources
+    ///
+    /// By default, sources are synchronized when issuing commands that involves upgrade,
+    /// search, install plugins.
+    /// This option allow to disable this behavior.
     #[arg(global = true, long, help_heading = "Global options", env = EnvVars::YAPT_NO_SYNC)]
     pub no_sync: bool,
     /// The QGIS version

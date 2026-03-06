@@ -413,7 +413,12 @@ fn cmd_source(
         }
         List => {
             for source in context.config().iter_sources() {
-                println!("{:20}{}", source.name, source.url);
+                println!(
+                    "{:20}{}  {}",
+                    source.name,
+                    source.url,
+                    if source.rest { "(rest)" } else { "" }
+                );
             }
         }
         Update { source, refresh } => {

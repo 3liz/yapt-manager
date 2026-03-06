@@ -115,7 +115,7 @@ impl RunContext {
         let path = self.cache_dir().join(name);
         if !path.exists() {
             if create {
-                std::fs::create_dir(&path)
+                std::fs::create_dir_all(&path)
                     .with_context(|| format!("Failed to create cache dir {path:?}"))?;
             } else {
                 return Err(anyhow::anyhow!("Source no configured: {name}"));
@@ -128,6 +128,7 @@ impl RunContext {
                 .try_url(&self.qgis_version)
                 .with_context(|| format!("Qgis version required for {name}"))?
                 .into_owned(),
+            source.rest,
         )
         .with_context(|| format!("Failed to load cache from {path:?}"))
     }

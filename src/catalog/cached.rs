@@ -6,7 +6,7 @@
 //! be downloaded and cached for subsequent requests.
 //!
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
@@ -24,7 +24,7 @@ use time::OffsetDateTime;
 use reqwest::{Response, StatusCode, header};
 use std::collections::HashMap;
 
-use super::{Catalog, Select, rest};
+use super::{Catalog, Select};
 
 type PluginMap = HashMap<String, Vec<Plugin>>;
 
@@ -368,7 +368,7 @@ impl Cached {
         let catalog = if let Some(ref content_type) = self.content_type
             && content_type.as_str() == mime::APPLICATION_JSON
         {
-            rest::read_catalog(&mut body)?
+            Self::read_catalog(&mut body)?
         } else {
             Plugin::read_catalog_xml(&mut body)?
         }
@@ -396,6 +396,24 @@ impl Cached {
         self.last_update = Some(time::OffsetDateTime::now_utc());
         serde_json::to_writer_pretty(fs::File::create(&self.path)?, self)?;
         Ok(())
+    }
+}
+
+impl Cached {
+    // Read catalog as Json
+    fn read_catalog<R: Read>(reader: &mut R) -> anyhow::Result<CacheBuilder> {
+        #[derive(serde::Deserialize)]
+        struct Plugins {
+            plugins: Vec<Plugin>,
+        }
+
+        let mut builder = CacheBuilder::new();
+        serde_json::from_reader::<&mut R, Plugins>(reader)?
+            .plugins
+            .into_iter()
+            .for_each(|p| builder.insert(p));
+
+        Ok(builder)
     }
 }
 

@@ -84,14 +84,18 @@ impl<'a> Select<'a> {
 /// Catalog implementation
 pub enum CatalogImpl {
     Cached(cached::Cached),
-    Rest,
+    Rest(rest::Rest),
 }
 
 impl CatalogImpl {
-    pub fn new(cache_dir: &Path, uri: String) -> anyhow::Result<CatalogImpl> {
-        Ok(CatalogImpl::Cached(cached::Cached::load_from(
-            cache_dir, uri,
-        )?))
+    pub fn new(cache_dir: &Path, uri: String, rest: bool) -> anyhow::Result<CatalogImpl> {
+        if rest {
+            Ok(CatalogImpl::Rest(rest::Rest::new(uri)))
+        } else {
+            Ok(CatalogImpl::Cached(cached::Cached::load_from(
+                cache_dir, uri,
+            )?))
+        }
     }
 }
 
@@ -103,9 +107,7 @@ impl Catalog for CatalogImpl {
     ) -> anyhow::Result<Vec<Plugin>> {
         match self {
             Self::Cached(cat) => cat.search(context, query).await,
-            Self::Rest => {
-                todo!();
-            }
+            Self::Rest(cat) => cat.search(context, query).await,
         }
     }
 
@@ -116,9 +118,7 @@ impl Catalog for CatalogImpl {
     ) -> anyhow::Result<Vec<Plugin>> {
         match self {
             Self::Cached(cat) => cat.search_all(context, query).await,
-            Self::Rest => {
-                todo!();
-            }
+            Self::Rest(cat) => cat.search_all(context, query).await,
         }
     }
 
@@ -130,8 +130,9 @@ impl Catalog for CatalogImpl {
     ) -> anyhow::Result<()> {
         match self {
             Self::Cached(cat) => cat.refresh(context, bar, force).await,
-            Self::Rest => {
-                todo!();
+            Self::Rest(_) => {
+                bar.finish_with_success();
+                Ok(())
             }
         }
     }
@@ -144,9 +145,7 @@ impl Catalog for CatalogImpl {
     ) -> anyhow::Result<()> {
         match self {
             Self::Cached(cat) => cat.check_for_update(context, bar).await,
-            Self::Rest => {
-                todo!();
-            }
+            Self::Rest(cat) => cat.check_for_update(context, bar).await,
         }
     }
 }
@@ -156,6 +155,7 @@ pub trait Catalog {
     async fn search(&self, context: &RunContext, query: &Select<'_>)
     -> anyhow::Result<Vec<Plugin>>;
 
+    /// Search for all versions of plugins
     async fn search_all(
         &self,
         context: &RunContext,
