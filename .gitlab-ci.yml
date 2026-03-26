@@ -1,0 +1,39 @@
+stages:
+  - build
+  - deploy
+
+build:
+  image: ${REGISTRY_URL}/factory-ci-runner:rust-noble
+  tags:
+    - factory-plain
+  stage: build
+  script:
+    - maturin build --release --strip
+    - echo "PACKAGE=`make package VERSION=latest`" > build.env
+    - echo "WHEEL=`ls -1 target/wheels/yapt_manager-*.whl`" >> build.env
+    - cat build.env
+  cache:
+    - key: cache-$CI_COMMIT_REF_SLUG
+      paths:
+        - target/release
+  artifacts:
+    reports:
+      dotenv: build.env
+    paths:
+      - "*.tar.gz"
+      - "target/wheels/yapt_manager-*.whl"
+    expire_in: 1 week
+
+deploy:
+    image: $REGISTRY_URI/factory-ci-runner:fabric-ci
+    tags:
+      - fabric
+    stage: deploy
+    rules:
+      - if: $RELEASE_BRANCH == "true"
+    dependencies:
+      - build
+    script:
+      - upload_to_packages_server ${PACKAGE} pub/yapt/
+      - upload_to_packages_server ${WHEEL} pub/whl/yapt-manager/
+
