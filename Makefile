@@ -15,3 +15,8 @@ package:
 	echo "Can only package for GNU/Linux OS" && false; \
 	fi
 	@echo $(PACKAGE)
+
+
+wheel:
+	maturin build --release --strip 
+	

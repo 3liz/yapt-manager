@@ -214,7 +214,8 @@ impl RunContext {
             deprecated,
             ..Default::default()
         };
-
+        
+        log::debug!("Find matching request for {name} {select:?}");
         Ok(if request.matches_any() {
             self.search(select, source, false)?
         } else {

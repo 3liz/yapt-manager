@@ -220,6 +220,7 @@ impl Installer {
                 .collect::<anyhow::Result<_>>()?;
 
         Ok(requirements.into_iter().map(move |s| {
+            log::debug!("Checking requirement for '{s}'");
             let (name, request) = crate::version::parse_requirement(&s)?;
             Ok(
                 if let Some(candidate) = context

@@ -26,6 +26,7 @@ impl Catalog for Rest {
 
         let url = self.build_url(query);
 
+        log::debug!("Fetch REST resources at: {url}");
         self.fetch(client.get(url)).await
     }
 
@@ -83,6 +84,10 @@ impl Rest {
             url.push_str(query);
         } else {
             url.push_str(self.url.trim_end_matches('/'));
+            if opts.by_name {
+                url.push_str("/plugins/");
+                url.push_str(&opts.key);
+            }
             url.push_str("/plugins.json");
             url.push_str("?qgis=");
             url.push_str(&opts.qgis_version.to_string());

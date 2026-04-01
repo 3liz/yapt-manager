@@ -15,7 +15,7 @@ pub(crate) mod cached;
 
 mod rest;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Select<'a> {
     /// Key: plugin name fragment or tag
     pub key: Cow<'a, str>,
