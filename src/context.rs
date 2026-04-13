@@ -482,6 +482,7 @@ impl AsRef<Plugin> for SearchItem {
 }
 
 pub enum InstallResult {
+    #[allow(unused)]
     Ok(SearchItem, PathBuf),
     Err(SearchItem, anyhow::Error),
 }

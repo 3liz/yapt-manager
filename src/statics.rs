@@ -25,8 +25,10 @@ impl EnvVars {
     /// Do not synchronize sources
     pub const YAPT_NO_SYNC: &'static str = "YAPT_NO_SYNC";
 
+    /*
     /// User agent
     pub const YAPT_USER_AGENT: &'static str = "YAPT_USER_AGENT";
+    */
 
     /// Hide progress outputs
     pub const YAPT_NO_PROGRESS: &'static str = "YAPT_NO_PROGRESS";

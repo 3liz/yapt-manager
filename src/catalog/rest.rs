@@ -48,9 +48,9 @@ impl Catalog for Rest {
     /// Refresh;
     async fn refresh(
         &mut self,
-        context: &RunContext,
+        _context: &RunContext,
         bar: CacheProgress,
-        force: bool,
+        _force: bool,
     ) -> anyhow::Result<()> {
         bar.finish_with_success();
         Ok(())
@@ -59,7 +59,7 @@ impl Catalog for Rest {
     /// Check for update
     async fn check_for_update(
         &mut self,
-        context: &RunContext,
+        _context: &RunContext,
         bar: CacheProgress,
     ) -> anyhow::Result<()> {
         bar.finish_with_success();

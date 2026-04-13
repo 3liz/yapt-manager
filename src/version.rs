@@ -102,7 +102,7 @@ impl SemVer {
     pub fn new(text: &str) -> Self {
         let mut text = text;
         // Strip prefixes
-        for pat in ["ver.", "ver", "v.", "v", "Ver", "Ver.", "V", "V."] {
+        for pat in ["ver.", "ver", "v.", "v", "Ver.", "Ver", "V.", "V"] {
             text = text.trim_start_matches(pat);
         }
 

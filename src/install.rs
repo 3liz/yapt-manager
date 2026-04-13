@@ -18,7 +18,9 @@ use crate::version::Version;
 
 pub enum InstallAction {
     Install(SearchItem),
+    #[allow(unused)]
     Upgrade(SearchItem, PathBuf),
+    #[allow(unused)]
     Unchanged(SearchItem, PathBuf),
     NotFound(String),
 }
