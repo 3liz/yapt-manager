@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 keywords = ["qgis", "plugins", "server"]
 authors = ["David Marteau <david.marteau@3liz.com>"]
-license = "MIT OR Apache-2.0"
+license = "BSD-2-Clause"
 description = "A QGIS plugin manager"
 
 [dependencies]
